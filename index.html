@@ -3,46 +3,55 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Graphify Hand Navigator renders Graphify repo knowledge graphs over a webcam feed with MediaPipe hand gestures."
+    />
     <title>Graphify Hand Navigator</title>
   </head>
   <body>
     <div id="app">
-      <section id="stage">
+      <section id="stage" aria-label="Webcam-backed graph stage">
         <video id="webcam" autoplay playsinline muted></video>
-        <canvas id="effects"></canvas>
-        <div id="cy"></div>
+        <canvas id="effects" aria-hidden="true"></canvas>
+        <div id="cy" aria-label="Interactive knowledge graph"></div>
       </section>
 
-      <aside id="hud">
+      <aside id="hud" aria-label="Graph controls">
         <h1>Graphify Hand Navigator</h1>
-        <p id="status">Loading MediaPipe Hands...</p>
-        <form id="githubForm" class="github-box">
+        <p id="status">Loading app...</p>
+
+        <form id="githubForm" class="panel-box">
           <label for="githubUrl">Public GitHub repo URL</label>
-          <div class="github-row">
+          <div class="control-row">
             <input id="githubUrl" type="url" placeholder="https://github.com/owner/repo" />
-            <button type="submit">Build</button>
+            <button type="submit">Build Graph</button>
           </div>
           <small>
-            Browser-only mode cannot clone repos directly. Use the Mac launcher option below, or paste a raw graph JSON URL.
+            Browsers cannot run <code>git clone</code> or Graphify directly. Submit a URL to generate the exact local
+            Mac command, then run it in Terminal.
           </small>
+          <pre id="commandBox" class="command-box" aria-live="polite">./start-mac.sh https://github.com/owner/repo</pre>
         </form>
 
-        <form id="jsonForm" class="github-box">
+        <form id="jsonForm" class="panel-box">
           <label for="jsonUrl">Optional raw graph.json URL</label>
-          <div class="github-row">
+          <div class="control-row">
             <input id="jsonUrl" type="url" placeholder="https://raw.githubusercontent.com/.../graph.json" />
             <button type="submit">Load</button>
           </div>
+          <small>Use this when a Graphify-compatible NetworkX node-link JSON file is already hosted somewhere.</small>
         </form>
 
-        <div class="legend">
-          <strong>Gestures</strong>
-          <span>One-hand pinch: grab / move nearest node</span>
-          <span>Two-hand pinch distance: zoom graph</span>
-          <span>Two open hands together: pull selected node toward midpoint</span>
-          <span>Right hand swipe: navigate neighbor nodes</span>
-        </div>
         <div id="selected">Selected: none</div>
+
+        <div class="legend">
+          <strong>Gesture help</strong>
+          <span><b>One-hand pinch:</b> grab and move nearest node</span>
+          <span><b>Two-hand pinch distance:</b> zoom graph</span>
+          <span><b>Two open hands together:</b> pull selected node toward midpoint</span>
+          <span><b>Right-hand swipe:</b> traverse to a connected neighbor</span>
+        </div>
       </aside>
     </div>
     <script type="module" src="/src/main.js"></script>

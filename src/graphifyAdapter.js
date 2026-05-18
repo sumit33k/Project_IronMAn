@@ -1,55 +1,74 @@
+function normalizeCytoscapeElements(elements) {
+  if (Array.isArray(elements)) {
+    return elements.map((element) => (element.data ? element : { data: element }));
+  }
+
+  if (elements && typeof elements === "object") {
+    return [...(elements.nodes || []), ...(elements.edges || [])].map((element) =>
+      element.data ? element : { data: element }
+    );
+  }
+
+  return [];
+}
+
+function asArrayOrObjectValues(candidate) {
+  if (!candidate) return [];
+  if (Array.isArray(candidate)) return candidate;
+  return Object.entries(candidate).map(([id, data]) => ({
+    id,
+    ...(data && typeof data === "object" ? data : { label: String(data) })
+  }));
+}
+
 export function graphifyToCytoscape(raw) {
   if (!raw) return demoGraph();
 
-  // Already Cytoscape-like.
-  if (Array.isArray(raw.elements)) {
-    return raw.elements.map((el) => {
-      if (el.data) return el;
-      return { data: el };
-    });
+  // Already Cytoscape-like: either an element array or { elements: { nodes, edges } }.
+  if (raw.elements) {
+    const normalized = normalizeCytoscapeElements(raw.elements);
+    return normalized.length ? normalized : demoGraph();
   }
 
-  const nodeCandidates = raw.nodes || raw.vertices || raw.concepts || raw.entities || [];
-  const edgeCandidates = raw.edges || raw.links || raw.relationships || raw.relations || [];
-
-  const nodes = Array.isArray(nodeCandidates)
-    ? nodeCandidates
-    : Object.entries(nodeCandidates).map(([id, data]) => ({ id, ...(typeof data === "object" ? data : { label: String(data) }) }));
-
+  const nodes = asArrayOrObjectValues(raw.nodes || raw.vertices || raw.concepts || raw.entities);
+  const edgeCandidates = raw.links || raw.edges || raw.relationships || raw.relations || [];
   const edges = Array.isArray(edgeCandidates)
     ? edgeCandidates
     : Object.entries(edgeCandidates).flatMap(([source, targets]) => {
         if (Array.isArray(targets)) return targets.map((target) => ({ source, target }));
+        if (targets && typeof targets === "object") {
+          return Object.keys(targets).map((target) => ({ source, target, ...targets[target] }));
+        }
         return [];
       });
 
-  const cyNodes = nodes.map((n, index) => {
-    const id = String(n.id || n.name || n.key || n.uid || `n${index}`);
+  const cyNodes = nodes.map((node, index) => {
+    const id = String(node.id ?? node.name ?? node.key ?? node.uid ?? `n${index}`);
     return {
       group: "nodes",
       data: {
-        ...n,
+        ...node,
         id,
-        label: String(n.label || n.name || n.title || n.kind || id).slice(0, 42),
-        kind: String(n.kind || n.type || n.group || "node")
+        label: String(node.label ?? node.name ?? node.title ?? id).slice(0, 42),
+        kind: String(node.kind ?? node.type ?? node.file_type ?? node.group ?? "node")
       }
     };
   });
 
-  const knownIds = new Set(cyNodes.map((n) => n.data.id));
+  const knownIds = new Set(cyNodes.map((node) => node.data.id));
   const cyEdges = edges
-    .map((e, index) => {
-      const source = String(e.source || e.from || e.start || e.src || e.source_id || "");
-      const target = String(e.target || e.to || e.end || e.dst || e.target_id || "");
+    .map((edge, index) => {
+      const source = String(edge.source ?? edge.from ?? edge.src ?? "");
+      const target = String(edge.target ?? edge.to ?? edge.dst ?? "");
       if (!knownIds.has(source) || !knownIds.has(target)) return null;
       return {
         group: "edges",
         data: {
-          ...e,
-          id: String(e.id || `${source}__${target}__${index}`),
+          ...edge,
+          id: String(edge.id ?? `${source}__${target}__${index}`),
           source,
           target,
-          label: String(e.label || e.type || e.relation || "")
+          label: String(edge.label ?? edge.type ?? edge.relation ?? edge.relationship ?? "")
         }
       };
     })
