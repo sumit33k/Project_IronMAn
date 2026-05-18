@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Graphify Hand Navigator</title>
+  </head>
+  <body>
+    <div id="app">
+      <section id="stage">
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="effects"></canvas>
+        <div id="cy"></div>
+      </section>
+
+      <aside id="hud">
+        <h1>Graphify Hand Navigator</h1>
+        <p id="status">Loading MediaPipe Hands...</p>
+        <form id="githubForm" class="github-box">
+          <label for="githubUrl">Public GitHub repo URL</label>
+          <div class="github-row">
+            <input id="githubUrl" type="url" placeholder="https://github.com/owner/repo" />
+            <button type="submit">Build</button>
+          </div>
+          <small>
+            Browser-only mode cannot clone repos directly. Use the Mac launcher option below, or paste a raw graph JSON URL.
+          </small>
+        </form>
+
+        <form id="jsonForm" class="github-box">
+          <label for="jsonUrl">Optional raw graph.json URL</label>
+          <div class="github-row">
+            <input id="jsonUrl" type="url" placeholder="https://raw.githubusercontent.com/.../graph.json" />
+            <button type="submit">Load</button>
+          </div>
+        </form>
+
+        <div class="legend">
+          <strong>Gestures</strong>
+          <span>One-hand pinch: grab / move nearest node</span>
+          <span>Two-hand pinch distance: zoom graph</span>
+          <span>Two open hands together: pull selected node toward midpoint</span>
+          <span>Right hand swipe: navigate neighbor nodes</span>
+        </div>
+        <div id="selected">Selected: none</div>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
