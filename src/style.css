@@ -13,9 +13,14 @@ body {
   overflow: hidden;
 }
 
+button,
+input {
+  font: inherit;
+}
+
 #app {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   height: 100vh;
 }
 
@@ -35,9 +40,10 @@ body {
 }
 
 #webcam {
+  z-index: 0;
   object-fit: cover;
   transform: scaleX(-1);
-  opacity: 0.58;
+  opacity: 0.62;
   filter: contrast(1.08) saturate(1.15);
 }
 
@@ -52,10 +58,12 @@ body {
 }
 
 #hud {
-  border-left: 1px solid rgba(255,255,255,0.12);
-  background: rgba(8, 10, 18, 0.94);
+  z-index: 3;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(8, 10, 18, 0.96), rgba(5, 7, 13, 0.94));
   padding: 22px;
   overflow: auto;
+  box-shadow: -20px 0 50px rgba(0, 0, 0, 0.25);
 }
 
 h1 {
@@ -65,23 +73,85 @@ h1 {
 }
 
 #status {
-  min-height: 44px;
+  min-height: 54px;
   color: #b8c4ff;
+  line-height: 1.35;
 }
 
+.panel-box,
 .legend {
   display: grid;
   gap: 10px;
-  margin-top: 22px;
+  margin-top: 16px;
   padding: 14px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
-  background: rgba(255,255,255,0.045);
+  background: rgba(255, 255, 255, 0.045);
 }
 
+.panel-box label,
+.legend strong {
+  font-size: 13px;
+  color: #f5f7fb;
+  font-weight: 800;
+}
+
+.panel-box small,
 .legend span {
   color: #d6defd;
   font-size: 13px;
+  line-height: 1.4;
+}
+
+.panel-box code {
+  color: #ffdc73;
+}
+
+.control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.control-row input {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.24);
+  color: white;
+  padding: 10px 11px;
+  outline: none;
+}
+
+.control-row input:focus {
+  border-color: rgba(120, 215, 255, 0.88);
+  box-shadow: 0 0 0 3px rgba(120, 215, 255, 0.14);
+}
+
+.control-row button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #78d7ff;
+  color: #04111a;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.control-row button:hover {
+  background: #9ee2ff;
+}
+
+.command-box {
+  margin: 2px 0 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px dashed rgba(120, 215, 255, 0.42);
+  background: rgba(0, 0, 0, 0.30);
+  color: #bff0ff;
+  cursor: copy;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 #selected {
@@ -93,49 +163,24 @@ h1 {
   word-break: break-word;
 }
 
-.github-box {
-  display: grid;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 14px;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 14px;
-  background: rgba(255,255,255,0.045);
-}
+@media (max-width: 900px) {
+  body {
+    overflow: auto;
+  }
 
-.github-box label {
-  font-size: 13px;
-  color: #f5f7fb;
-  font-weight: 700;
-}
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(60vh, 1fr) auto;
+    height: auto;
+    min-height: 100vh;
+  }
 
-.github-box small {
-  color: #aeb9d8;
-  line-height: 1.35;
-}
+  #stage {
+    min-height: 60vh;
+  }
 
-.github-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
-.github-row input {
-  min-width: 0;
-  border: 1px solid rgba(255,255,255,0.16);
-  border-radius: 10px;
-  background: rgba(0,0,0,0.24);
-  color: white;
-  padding: 10px 11px;
-  outline: none;
-}
-
-.github-row button {
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: #78d7ff;
-  color: #04111a;
-  cursor: pointer;
-  font-weight: 800;
+  #hud {
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
 }

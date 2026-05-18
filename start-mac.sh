@@ -5,6 +5,8 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT="${1:-}"
 WORK_DIR="$APP_DIR/.graphify-work"
 TARGET_DIR=""
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+mkdir -p "$APP_DIR/public"
 
 echo "Graphify Hand Navigator"
 echo "======================="
@@ -27,13 +29,7 @@ fi
 if ! command -v uv >/dev/null 2>&1; then
   echo "uv not found. Installing uv..."
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
-fi
-
-if ! command -v graphify >/dev/null 2>&1; then
-  echo "Installing Graphify CLI package graphifyy..."
-  uv tool install graphifyy
-  export PATH="$HOME/.local/bin:$PATH"
+  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
 
 if [[ "$INPUT" =~ ^https://github.com/[^/]+/[^/]+/?$ ]] || [[ "$INPUT" =~ ^git@github.com:.+/.+\.git$ ]] || [[ "$INPUT" =~ ^https://github.com/.+/.+\.git$ ]]; then
@@ -55,6 +51,18 @@ elif [ -n "$INPUT" ]; then
 fi
 
 if [ -n "$TARGET_DIR" ]; then
+  if ! command -v graphify >/dev/null 2>&1; then
+    echo "Installing Graphify CLI package graphifyy..."
+    uv tool install graphifyy
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+  fi
+
+  if ! command -v graphify >/dev/null 2>&1; then
+    echo "graphify is still not on PATH after installing graphifyy."
+    echo "Try: export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:\$PATH\""
+    exit 1
+  fi
+
   echo "Building Graphify knowledge graph from: $TARGET_DIR"
   (cd "$TARGET_DIR" && graphify .)
 
