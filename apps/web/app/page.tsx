@@ -15,6 +15,20 @@ type BriefResponse = { top_priorities: string[]; risks: string[]; suggested_sche
 
 const API = "http://localhost:8000";
 const parseLines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
+  id: number;
+  title: string;
+  description: string | null;
+  category: TaskCategory;
+  priority: TaskPriority;
+  status: TaskStatus;
+  due_date: string | null;
+  source: string | null;
+  assigned_agent: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const API = "http://localhost:8000";
 
 export default function HomePage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -41,6 +55,42 @@ export default function HomePage() {
     const res = await fetch(`${API}/ai/daily-brief/from-tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upcoming_meetings: parseLines(meetings), pending_follow_ups: parseLines(followUps) }) });
     if (!res.ok) { setBrief(null); setBriefErr((await res.text()) || "Failed to generate brief"); return; }
     setBrief(await res.json());
+  const [form, setForm] = useState({ title: "", description: "", category: "office", priority: "medium", status: "inbox", due_date: "" });
+
+  const load = async () => {
+    const [a, b, c] = await Promise.all([
+      fetch(`${API}/tasks`).then((r) => r.json()),
+      fetch(`${API}/tasks/today`).then((r) => r.json()),
+      fetch(`${API}/tasks/overdue`).then((r) => r.json()),
+    ]);
+    setTasks(a);
+    setToday(b);
+    setOverdue(c);
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    await fetch(`${API}/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...form, due_date: form.due_date || null }),
+    });
+    setForm({ title: "", description: "", category: "office", priority: "medium", status: "inbox", due_date: "" });
+    await load();
+  };
+
+  const updateStatus = async (id: number, status: TaskStatus) => {
+    await fetch(`${API}/tasks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    await load();
+  };
+
+  const removeTask = async (id: number) => {
+    await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
+    await load();
   };
 
   const sections = useMemo(() => [{ title: "All Tasks", data: tasks }, { title: "Today Queue", data: today }, { title: "Overdue", data: overdue }], [tasks, today, overdue]);
@@ -55,6 +105,7 @@ export default function HomePage() {
         {briefErr ? <p className="text-sm text-red-300">{briefErr}</p> : null}
       </section>
       {brief ? <section className="grid gap-3 md:grid-cols-2">{Object.entries(brief).map(([k,v]) => <article key={k} className="rounded border border-slate-700 p-3"><h3 className="font-semibold">{k.replaceAll("_"," ")}</h3><ul className="list-disc pl-5 text-sm text-slate-300">{v.map((x) => <li key={x}>{x}</li>)}</ul></article>)}</section> : null}
+      <h1 className="text-3xl font-semibold">Task Engine MVP</h1>
 
       <form onSubmit={submit} className="grid gap-3 rounded border border-slate-700 p-4 md:grid-cols-2">
         <input className="rounded bg-slate-900 p-2" placeholder="Task title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
@@ -67,6 +118,158 @@ export default function HomePage() {
       </form>
 
       {sections.map((section) => <section key={section.title} className="rounded border border-slate-700 p-4"><h2 className="mb-3 text-xl font-semibold">{section.title}</h2><div className="grid gap-3">{section.data.map((task) => <article key={task.id} className="rounded border border-slate-800 p-3"><div className="flex items-center justify-between gap-2"><h3 className="font-medium">{task.title}</h3><span className="text-xs text-slate-400">{task.status}</span></div><p className="text-sm text-slate-300">{task.description}</p><p className="text-xs text-slate-400">{task.category} · {task.priority} · due {task.due_date ?? "n/a"}</p><div className="mt-2 flex gap-2"><button className="rounded bg-emerald-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "completed")}>Complete</button><button className="rounded bg-amber-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "deferred")}>Defer</button><button className="rounded bg-slate-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "in_progress")}>Start</button><button className="rounded bg-red-700 px-2 py-1 text-xs" onClick={() => removeTask(task.id)}>Delete</button></div></article>)}{section.data.length === 0 ? <p className="text-sm text-slate-400">No tasks.</p> : null}</div></section>)}
+        <select className="rounded bg-slate-900 p-2" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+          { ["office","personal","finance","health","errands","project"].map((x) => <option key={x}>{x}</option>) }
+        </select>
+        <select className="rounded bg-slate-900 p-2" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
+          { ["critical","high","medium","low"].map((x) => <option key={x}>{x}</option>) }
+        </select>
+        <select className="rounded bg-slate-900 p-2" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+          { ["inbox","today","in_progress","waiting","deferred","scheduled","completed","archived"].map((x) => <option key={x}>{x}</option>) }
+        </select>
+        <button className="rounded bg-blue-600 px-4 py-2">Create Task</button>
+      </form>
+
+      {sections.map((section) => (
+        <section key={section.title} className="rounded border border-slate-700 p-4">
+          <h2 className="mb-3 text-xl font-semibold">{section.title}</h2>
+          <div className="grid gap-3">
+            {section.data.map((task) => (
+              <article key={task.id} className="rounded border border-slate-800 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-medium">{task.title}</h3>
+                  <span className="text-xs text-slate-400">{task.status}</span>
+                </div>
+                <p className="text-sm text-slate-300">{task.description}</p>
+                <p className="text-xs text-slate-400">{task.category} · {task.priority} · due {task.due_date ?? "n/a"}</p>
+                <div className="mt-2 flex gap-2">
+                  <button className="rounded bg-emerald-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "completed")}>Complete</button>
+                  <button className="rounded bg-amber-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "deferred")}>Defer</button>
+                  <button className="rounded bg-slate-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "in_progress")}>Start</button>
+                  <button className="rounded bg-red-700 px-2 py-1 text-xs" onClick={() => removeTask(task.id)}>Delete</button>
+                </div>
+              </article>
+            ))}
+            {section.data.length === 0 ? <p className="text-sm text-slate-400">No tasks.</p> : null}
+          </div>
+        </section>
+      ))}
+import { FormEvent, useState } from "react";
+
+type BriefResponse = {
+  top_priorities: string[];
+  risks: string[];
+  suggested_schedule: string[];
+  follow_ups: string[];
+  recommended_deferrals: string[];
+};
+
+const parseLines = (text: string): string[] =>
+  text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+export default function HomePage() {
+  const [todaysTasks, setTodaysTasks] = useState("");
+  const [overdueTasks, setOverdueTasks] = useState("");
+  const [upcomingMeetings, setUpcomingMeetings] = useState("");
+  const [pendingFollowUps, setPendingFollowUps] = useState("");
+  const [brief, setBrief] = useState<BriefResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch("http://localhost:8000/ai/daily-brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          todays_tasks: parseLines(todaysTasks),
+          overdue_tasks: parseLines(overdueTasks),
+          upcoming_meetings: parseLines(upcomingMeetings),
+          pending_follow_ups: parseLines(pendingFollowUps),
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Unable to generate daily brief");
+      }
+
+      const data: BriefResponse = await response.json();
+      setBrief(data);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Unknown error");
+      setBrief(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 p-8">
+      <h1 className="text-3xl font-semibold">Daily Brief</h1>
+      <p className="text-slate-300">Generate a local AI morning brief from your current work context.</p>
+
+      <form onSubmit={onSubmit} className="grid gap-4 rounded-lg border border-slate-700 p-4">
+        {[
+          ["Today&apos;s Tasks", todaysTasks, setTodaysTasks],
+          ["Overdue Tasks", overdueTasks, setOverdueTasks],
+          ["Upcoming Meetings", upcomingMeetings, setUpcomingMeetings],
+          ["Pending Follow-ups", pendingFollowUps, setPendingFollowUps],
+        ].map(([label, value, setValue]) => (
+          <label key={label as string} className="grid gap-2 text-sm">
+            <span className="font-medium">{label as string} (one per line)</span>
+            <textarea
+              className="min-h-24 rounded-md border border-slate-600 bg-slate-900 p-2"
+              value={value as string}
+              onChange={(e) => (setValue as (v: string) => void)(e.target.value)}
+            />
+          </label>
+        ))}
+
+        <button
+          type="submit"
+          className="w-fit rounded-md bg-blue-600 px-4 py-2 font-medium hover:bg-blue-500 disabled:opacity-60"
+          disabled={loading}
+        >
+          {loading ? "Generating..." : "Generate Brief"}
+        </button>
+      </form>
+
+      {error ? <div className="rounded-md border border-red-500 p-3 text-red-300">{error}</div> : null}
+
+      {brief ? (
+        <section className="grid gap-4 md:grid-cols-2">
+          {Object.entries(brief).map(([section, items]) => (
+            <article key={section} className="rounded-lg border border-slate-700 p-4">
+              <h2 className="mb-2 text-lg font-semibold capitalize">{section.replaceAll("_", " ")}</h2>
+              <ul className="list-disc space-y-1 pl-5 text-slate-300">
+                {items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </section>
+      ) : null}
+export default function HomePage() {
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 p-8">
+      <h1 className="text-3xl font-semibold">Project IronMAn</h1>
+      <p className="text-slate-300">
+        A local-first AI Personal Command Center scaffold is up and running.
+      </p>
+      <ul className="list-disc space-y-2 pl-6 text-slate-300">
+        <li>Next.js frontend initialized</li>
+        <li>FastAPI backend initialized</li>
+        <li>Postgres, Redis, Qdrant, Ollama compose services ready</li>
+      </ul>
     </main>
   );
 }
