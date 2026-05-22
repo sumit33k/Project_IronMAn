@@ -20,6 +20,12 @@ def get_db():
         yield db
     finally:
         db.close()
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+from app.services.ollama_client import OllamaClient, OllamaUnavailableError
+
+app = FastAPI(title="Project IronMAn API", version="0.2.0")
 
 
 class BriefInput(BaseModel):
@@ -35,6 +41,9 @@ class DailyBriefResponse(BaseModel):
     suggested_schedule: list[str]
     follow_ups: list[str]
     recommended_deferrals: list[str]
+from fastapi import FastAPI
+
+app = FastAPI(title="Project IronMAn API", version="0.1.0")
 
 
 @app.get("/health")
