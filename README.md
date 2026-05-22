@@ -109,6 +109,65 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 
 - All AI processing is local through Ollama.
 - Prompt template is versioned at `apps/api/app/prompts/daily_brief_v1.txt`.
+- n8n, Keycloak, and deeper app modules can be added incrementally.
+
+
+## Task Engine MVP
+
+### API endpoints
+- `POST /tasks` create task
+- `GET /tasks` list all tasks
+- `PATCH /tasks/{id}` edit task fields (including complete/defer via status)
+- `DELETE /tasks/{id}` delete task
+- `GET /tasks/today` today queue
+- `GET /tasks/overdue` overdue tasks
+
+### Task statuses
+- `inbox`, `today`, `in_progress`, `waiting`, `deferred`, `scheduled`, `completed`, `archived`
+
+### Task fields
+- `id`, `title`, `description`, `category`, `priority`, `status`, `due_date`, `source`, `assigned_agent`, `created_at`, `updated_at`
+
+Daily brief endpoint:
+
+```bash
+curl -X POST http://localhost:8000/ai/daily-brief \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "todays_tasks": ["Draft Q2 roadmap", "Review pull requests"],
+    "overdue_tasks": ["Submit expense report"],
+    "upcoming_meetings": ["10:00 Product sync", "14:00 1:1 with manager"],
+    "pending_follow_ups": ["Reply to vendor quote"]
+  }'
+```
+
+If Ollama is unavailable, the API returns a graceful `503` error.
+
+## 3) Run the Web app (Next.js)
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+Open: `http://localhost:3000` and use the Daily Brief panel.
+
+## 4) Shared package usage
+
+`packages/shared` includes starter TypeScript types for tasks, routines, reminders, and delegated jobs.
+
+## CI
+
+GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
+
+- Web lint + build
+- API syntax/import check
+
+## Notes
+
+- All AI processing is local through Ollama.
+- Prompt template is versioned at `apps/api/app/prompts/daily_brief_v1.txt`.
 Health endpoint:
 
 ```bash
