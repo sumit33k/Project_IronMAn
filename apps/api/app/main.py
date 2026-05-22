@@ -11,6 +11,7 @@ from app.db.schemas import TaskCreate, TaskOut, TaskUpdate
 from app.services.ollama_client import OllamaClient, OllamaUnavailableError
 
 Base.metadata.create_all(bind=engine)
+
 app = FastAPI(title="Project IronMAn API", version="0.3.0")
 
 
@@ -105,6 +106,34 @@ async def daily_brief(payload: BriefInput) -> DailyBriefResponse:
     client = OllamaClient()
     try:
         brief = await client.generate_daily_brief(payload.model_dump())
+    except OllamaUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return DailyBriefResponse(**brief)
+
+
+class DailyBriefFromTasksInput(BaseModel):
+    upcoming_meetings: list[str] = Field(default_factory=list)
+    pending_follow_ups: list[str] = Field(default_factory=list)
+
+
+@app.post("/ai/daily-brief/from-tasks", response_model=DailyBriefResponse)
+async def daily_brief_from_tasks(
+    payload: DailyBriefFromTasksInput,
+    db: Session = Depends(get_db),
+) -> DailyBriefResponse:
+    today_tasks = [f"{t.title} ({t.priority})" for t in list_today_tasks(db)]
+    overdue_tasks = [f"{t.title} (due {t.due_date})" for t in list_overdue_tasks(db)]
+
+    payload = {
+        "todays_tasks": today_tasks,
+        "overdue_tasks": overdue_tasks,
+        "upcoming_meetings": payload.upcoming_meetings,
+        "pending_follow_ups": payload.pending_follow_ups,
+    }
+    client = OllamaClient()
+    try:
+        brief = await client.generate_daily_brief(payload)
     except OllamaUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
