@@ -19,6 +19,9 @@ class DailyBriefResponse(BaseModel):
     suggested_schedule: list[str]
     follow_ups: list[str]
     recommended_deferrals: list[str]
+from fastapi import FastAPI
+
+app = FastAPI(title="Project IronMAn API", version="0.1.0")
 
 
 @app.get("/health")

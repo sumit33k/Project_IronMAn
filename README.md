@@ -18,6 +18,8 @@ An open-source, local-first monorepo scaffold for a private AI command center to
 
 - `apps/web` — Next.js web application + Daily Brief panel
 - `apps/api` — FastAPI backend service + local Ollama integration
+- `apps/web` — Next.js web application
+- `apps/api` — FastAPI backend service
 - `packages/shared` — shared TypeScript types
 - `infra/docker-compose.yml` — local infra services
 - `.github/workflows/ci.yml` — CI checks
@@ -107,4 +109,34 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 
 - All AI processing is local through Ollama.
 - Prompt template is versioned at `apps/api/app/prompts/daily_brief_v1.txt`.
+Health endpoint:
+
+```bash
+curl http://localhost:8000/health
+```
+
+## 3) Run the Web app (Next.js)
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+Open: `http://localhost:3000`
+
+## 4) Shared package usage
+
+`packages/shared` includes starter TypeScript types for tasks, routines, reminders, and delegated jobs.
+
+## CI
+
+GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
+
+- Web lint + build
+- API syntax/import check
+
+## Notes
+
+- This is an initial scaffold for local-first development.
 - n8n, Keycloak, and deeper app modules can be added incrementally.
