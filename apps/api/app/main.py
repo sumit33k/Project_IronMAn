@@ -10,10 +10,22 @@ from app.agents.presentation import PresentationAgent
 from app.agents.email_draft import EmailDraftAgent
 from app.agents.follow_up import FollowUpAgent
 from app.agents.calendar_prep import CalendarPrepAgent
+from app.agents.document_agent import DocumentAgent
+from app.agents.research_agent import ResearchAgent
+from app.agents.routine_agent import RoutineAgent
+from app.agents.orchestrator_agent import OrchestratorAgent
 
 Base.metadata.create_all(bind=engine)
 
-# Register all agents
+# Initialize integration registry slots (no user data)
+from app.seed import seed_integrations
+from app.db.database import SessionLocal as _SL
+_db = _SL()
+try:
+    seed_integrations(_db)
+finally:
+    _db.close()
+
 registry = get_registry()
 for agent in [
     TaskClassifierAgent(),
@@ -22,6 +34,10 @@ for agent in [
     EmailDraftAgent(),
     FollowUpAgent(),
     CalendarPrepAgent(),
+    DocumentAgent(),
+    ResearchAgent(),
+    RoutineAgent(),
+    OrchestratorAgent(),
 ]:
     registry.register(agent)
 

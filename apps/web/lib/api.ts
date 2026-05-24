@@ -38,6 +38,11 @@ export const api = {
   generateBriefing: (meetings: string[], followUps: string[]) =>
     apiFetch<Briefing>('/briefings/generate', { method: 'POST', body: JSON.stringify({ upcoming_meetings: meetings, pending_follow_ups: followUps }) }),
 
+  // Voice
+  processVoice: (transcript: string, autoExecute = false) =>
+    apiFetch<CommandResult>('/voice/process', { method: 'POST', body: JSON.stringify({ transcript, auto_execute: autoExecute }) }),
+  getVoiceHistory: () => apiFetch<VoiceHistoryRecord[]>('/voice/history'),
+
   // AI / Settings
   aiHealth: () => apiFetch<{ ollama_available: boolean; models: string[] }>('/ai/health'),
   getSettings: () => apiFetch<Record<string, unknown>>('/settings'),
@@ -122,4 +127,11 @@ export interface Briefing {
   risks: string[];
   recommended_schedule: string[];
   focus_score: number;
+}
+
+export interface VoiceHistoryRecord {
+  id: string;
+  text: string;
+  routing_result: string;
+  created_at: string;
 }
