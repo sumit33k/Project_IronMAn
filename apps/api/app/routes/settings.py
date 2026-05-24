@@ -24,6 +24,11 @@ DEFAULT_SETTINGS = {
     "user_name": "Sumit",
     "theme": "dark",
     "approval_policy": "always_for_risky",
+    "cloud_provider_enabled": False,
+    "cloud_provider": "none",
+    "cloud_api_key": "",
+    "cloud_model": "",
+    "data_sharing_acknowledged": False,
 }
 
 

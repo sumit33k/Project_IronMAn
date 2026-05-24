@@ -1,5 +1,8 @@
+import csv
+import io
 import json
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
@@ -51,6 +54,46 @@ def list_runs(limit: int = 50, db: Session = Depends(get_db)):
         }
         for r in runs
     ]
+
+
+@router.get("/runs/export")
+def export_runs(format: str = "json", limit: int = 500, db: Session = Depends(get_db)):
+    runs = db.scalars(select(AgentRun).order_by(AgentRun.created_at.desc()).limit(limit)).all()
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["id", "agent_id", "task_id", "status", "created_at", "completed_at", "error_message"])
+        for r in runs:
+            writer.writerow([
+                r.id,
+                r.agent_id,
+                r.task_id,
+                r.status,
+                r.created_at.isoformat() if r.created_at else None,
+                r.completed_at.isoformat() if r.completed_at else None,
+                r.error_message,
+            ])
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=agent_runs.csv"},
+        )
+    data = [
+        {
+            "id": r.id,
+            "agent_id": r.agent_id,
+            "task_id": r.task_id,
+            "status": r.status,
+            "input_data": json.loads(r.input_data) if r.input_data else {},
+            "output_data": json.loads(r.output_data) if r.output_data else None,
+            "error_message": r.error_message,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+        }
+        for r in runs
+    ]
+    return JSONResponse(content=data, headers={"Content-Disposition": "attachment; filename=agent_runs.json"})
 
 
 @router.get("/{agent_id}", response_model=dict)
