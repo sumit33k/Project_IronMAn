@@ -5,25 +5,32 @@ import {
   LayoutDashboard, Clock, CheckSquare, FolderOpen, Calendar, Mail,
   RefreshCw, Bot, FileText, StickyNote, RotateCcw, Target, Users,
   BarChart2, Settings, Plus, CalendarPlus, Send, FileEdit, Mic,
-  Upload, Camera, Zap,
+  Upload, Camera, Zap, Inbox, Link2, Moon, Crosshair, Kanban,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
 const NAV = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
   { label: 'Today', href: '/today', icon: Clock },
+  { label: 'Inbox', href: '/inbox', icon: Inbox },
+  { label: 'Board', href: '/board', icon: Kanban },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare },
+  { label: 'Focus Mode', href: '/focus', icon: Crosshair },
+  { label: 'Daily Review', href: '/review', icon: Moon },
+  { label: 'Agents', href: '/agents', icon: Bot },
+  { label: 'Briefing', href: '/briefing', icon: FileText },
   { label: 'Projects', href: '/projects', icon: FolderOpen },
   { label: 'Calendar', href: '/calendar', icon: Calendar },
   { label: 'Emails', href: '/emails', icon: Mail, badge: 3 },
   { label: 'Follow-ups', href: '/followups', icon: RefreshCw, badge: 7 },
-  { label: 'Agents', href: '/agents', icon: Bot },
   { label: 'Documents', href: '/documents', icon: FileText },
   { label: 'Notes', href: '/notes', icon: StickyNote },
   { label: 'Routines', href: '/routines', icon: RotateCcw },
   { label: 'Goals', href: '/goals', icon: Target },
   { label: 'Contacts', href: '/contacts', icon: Users },
   { label: 'Analytics', href: '/analytics', icon: BarChart2 },
+  { label: 'Integrations', href: '/integrations', icon: Link2 },
+  { label: 'Voice', href: '/voice', icon: Mic },
 ];
 
 const QUICK_ACTIONS = [

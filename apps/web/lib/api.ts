@@ -47,6 +47,19 @@ export const api = {
   aiHealth: () => apiFetch<{ ollama_available: boolean; models: string[] }>('/ai/health'),
   getSettings: () => apiFetch<Record<string, unknown>>('/settings'),
   updateSettings: (data: Record<string, unknown>) => apiFetch<Record<string, unknown>>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Single task
+  getTask: (id: string) => apiFetch<Task>(`/tasks/${id}`),
+
+  // Integrations
+  getIntegrations: () => apiFetch<Integration[]>('/integrations'),
+  getGoogleAuthUrl: (scope = 'both') => apiFetch<{ auth_url: string; scope: string }>(`/integrations/google/auth?scope=${scope}`),
+  syncIntegration: (type: string) => apiFetch<{ status: string; items_imported: number; items: unknown[] }>(`/integrations/${type}/sync`, { method: 'POST' }),
+  disconnectIntegration: (type: string) => apiFetch<{ status: string }>(`/integrations/${type}/disconnect`, { method: 'POST' }),
+
+  // End-of-Day Review
+  getEodReview: () => apiFetch<EodReview>('/eod/review'),
+  generateEodReview: (notes?: string) => apiFetch<EodReview>('/eod/review', { method: 'POST', body: JSON.stringify({ notes: notes || '' }) }),
 };
 
 // Types
@@ -61,6 +74,9 @@ export interface Task {
   tags: string[];
   personal_or_work: string;
   next_action?: string;
+  context_summary?: string;
+  confidence_score?: number;
+  source_reference?: string;
   agent_id?: string;
   agent_status?: string;
   source: string;
@@ -134,4 +150,28 @@ export interface VoiceHistoryRecord {
   text: string;
   routing_result: string;
   created_at: string;
+}
+
+export interface Integration {
+  id: string;
+  integration_type: string;
+  name: string;
+  status: string;
+  last_sync_at: string | null;
+}
+
+export interface EodReview {
+  date: string;
+  completed_count: number;
+  completed_tasks: { title: string; priority: string }[];
+  deferred_count: number;
+  deferred_tasks: { title: string; priority: string }[];
+  missed_count: number;
+  missed_tasks: { title: string; priority: string; status: string }[];
+  tomorrow_queue: { title: string; priority: string }[];
+  delegation_opportunities: string[];
+  follow_ups_needed: string[];
+  summary: string;
+  momentum_score: number;
+  recommended_actions: string[];
 }
