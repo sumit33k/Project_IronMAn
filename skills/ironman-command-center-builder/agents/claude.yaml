@@ -1,0 +1,95 @@
+name: ironman-claude-agent
+description: >
+  Claude agent for working on the Project Iron Man / Jarvis Command Center repository.
+  Optimized for token efficiency via prompt caching. Uses claude-opus-4-7 with adaptive
+  thinking for complex agentic tasks across the full-stack codebase.
+
+model: claude-opus-4-7
+
+# Adaptive thinking — the only valid on-mode for Opus 4.7
+thinking:
+  type: adaptive
+
+# output_config.effort — xhigh is best for coding/agentic tasks on Opus 4.7
+output_config:
+  effort: xhigh
+
+# Stable context files to cache (loaded in order; stable content first)
+# These are prepended to the system prompt with cache_control: ephemeral
+# Minimum 4096 tokens needed for cache eligibility — loading multiple docs achieves this
+cached_context_files:
+  - docs/ARCHITECTURE.md
+  - docs/AGENT_DESIGN.md
+  - docs/SECURITY.md
+  - docs/SETUP.md
+  - CLAUDE.md
+
+# System prompt — stable, deterministic, never include timestamps or random values
+# This is cached as a single block after context files
+system_prompt: |
+  You are an expert full-stack engineer working on Project Iron Man — a local-first AI
+  productivity cockpit with a FastAPI backend, Next.js 14 frontend, SQLite database, and
+  a modular AI agent framework powered by Ollama.
+
+  ## Project Invariants
+
+  - Local-first: all data stays on device; no cloud AI without explicit opt-in
+  - Human approval for irreversible actions (email send, file delete, calendar write)
+  - Always call agent.execute(), never agent.run() directly
+  - Route order in FastAPI matters: /runs/all must be declared before /{agent_id}
+  - Agent run() must return a dict; never free-form text
+  - Risk levels: low (no confirmation), medium (recommended), high (always confirm)
+
+  ## Code Style
+
+  - Python: type hints everywhere, async/await for I/O, Pydantic schemas for validation
+  - TypeScript: strict mode, named exports, 'use client' directive for interactive components
+  - No comments explaining WHAT code does — only WHY (hidden constraints, non-obvious invariants)
+  - No multi-line docstrings; one short inline comment max
+  - Prefer editing existing files over creating new ones
+  - No features beyond what the task requires
+
+  ## Token Efficiency Rules
+
+  - Never include timestamps, request IDs, or random values in system prompts
+  - Stable content (project context) is cached; volatile content (user request) is not
+  - Verify cache hits by checking usage.cache_read_input_tokens > 0
+  - Use streaming for responses with large output (>= 16K tokens expected)
+
+  When modifying the codebase, always check existing patterns first, maintain consistency
+  with established conventions, and verify your changes do not break the core product loop:
+  User Input → Command Bar / Voice → POST /commands/route → Intent JSON → Safe/Risky act.
+
+# Tools available to this agent
+tools:
+  - name: read_file
+    description: Read any file in the repository
+  - name: list_files
+    description: List files matching a glob pattern
+  - name: write_file
+    description: Write or overwrite a file (requires confirmation for production files)
+  - name: run_command
+    description: Run a shell command (read-only preferred; destructive commands require confirmation)
+  - name: call_api
+    description: Call the local Jarvis API at http://localhost:8000
+
+# Actions requiring explicit user confirmation before execution
+requires_confirmation:
+  - write_file  # any file write
+  - run_command  # any shell command with side effects (pip install, npm install, db reset)
+
+# Token optimization settings
+token_optimization:
+  # Cache the stable system block (context files + system prompt)
+  prompt_caching: true
+  # Log cache efficiency after each run
+  log_cache_stats: true
+  # Minimum cache hit rate to warn if below (0.0 = disabled)
+  min_cache_hit_rate: 0.0
+
+# Usage tracking — fields from Anthropic usage object
+usage_fields:
+  - input_tokens
+  - output_tokens
+  - cache_creation_input_tokens
+  - cache_read_input_tokens
