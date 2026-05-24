@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
@@ -21,7 +22,7 @@ DEFAULT_SETTINGS = {
     "wake_phrase": "hey jarvis",
     "voice_enabled": False,
     "tts_enabled": False,
-    "user_name": "Sumit",
+    "user_name": "",
     "theme": "dark",
     "approval_policy": "always_for_risky",
     "cloud_provider_enabled": False,
@@ -29,6 +30,8 @@ DEFAULT_SETTINGS = {
     "cloud_api_key": "",
     "cloud_model": "",
     "data_sharing_acknowledged": False,
+    "setup_complete": False,
+    "setup_completed_at": None,
 }
 
 
@@ -54,3 +57,11 @@ def update_settings(payload: dict, db: Session = Depends(get_db)):
             db.add(AppSettings(key=key, value=json.dumps(value)))
     db.commit()
     return get_settings(db)
+
+
+@router.post("/complete-setup")
+def complete_setup(payload: dict, db: Session = Depends(get_db)):
+    """Bulk-save wizard selections and mark setup as done."""
+    payload["setup_complete"] = True
+    payload["setup_completed_at"] = datetime.now(timezone.utc).isoformat()
+    return update_settings(payload, db)
