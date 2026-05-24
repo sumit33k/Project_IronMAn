@@ -1,0 +1,125 @@
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export const api = {
+  // Tasks
+  getTasks: (status?: string) => apiFetch<Task[]>(`/tasks${status ? `?status=${status}` : ''}`),
+  getTodayTasks: () => apiFetch<Task[]>('/tasks/today'),
+  getOverdueTasks: () => apiFetch<Task[]>('/tasks/overdue'),
+  createTask: (data: CreateTaskInput) => apiFetch<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  updateTask: (id: string, data: Partial<Task>) => apiFetch<Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  completeTask: (id: string) => apiFetch<Task>(`/tasks/${id}/complete`, { method: 'POST' }),
+  deferTask: (id: string, until?: string) => apiFetch<Task>(`/tasks/${id}/defer?defer_until=${until || ''}`, { method: 'POST' }),
+  deleteTask: (id: string) => apiFetch<void>(`/tasks/${id}`, { method: 'DELETE' }),
+  markWaiting: (id: string) => apiFetch<Task>(`/tasks/${id}/mark-waiting`, { method: 'POST' }),
+  delegateTask: (id: string, agentId: string) => apiFetch<Task>(`/tasks/${id}/delegate?agent_id=${agentId}`, { method: 'POST' }),
+
+  // Agents
+  getAgents: () => apiFetch<Agent[]>('/agents'),
+  runAgent: (agentId: string, input: Record<string, unknown>, taskId?: string) =>
+    apiFetch<AgentRun>(`/agents/${agentId}/run${taskId ? `?task_id=${taskId}` : ''}`, { method: 'POST', body: JSON.stringify(input) }),
+  getAgentRuns: () => apiFetch<AgentRun[]>('/agents/runs/all'),
+
+  // Commands
+  routeCommand: (input: string, mode = 'text') =>
+    apiFetch<CommandResult>('/commands/route', { method: 'POST', body: JSON.stringify({ raw_input: input, input_mode: mode }) }),
+  getCommandHistory: () => apiFetch<CommandRecord[]>('/commands/history'),
+
+  // Briefings
+  getTodayBriefing: () => apiFetch<Briefing | null>('/briefings/today'),
+  generateBriefing: (meetings: string[], followUps: string[]) =>
+    apiFetch<Briefing>('/briefings/generate', { method: 'POST', body: JSON.stringify({ upcoming_meetings: meetings, pending_follow_ups: followUps }) }),
+
+  // AI / Settings
+  aiHealth: () => apiFetch<{ ollama_available: boolean; models: string[] }>('/ai/health'),
+  getSettings: () => apiFetch<Record<string, unknown>>('/settings'),
+  updateSettings: (data: Record<string, unknown>) => apiFetch<Record<string, unknown>>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+};
+
+// Types
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  priority: string;
+  due_date?: string;
+  category: string;
+  tags: string[];
+  personal_or_work: string;
+  next_action?: string;
+  agent_id?: string;
+  agent_status?: string;
+  source: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string;
+}
+
+export interface CreateTaskInput {
+  title: string;
+  description?: string;
+  priority?: string;
+  status?: string;
+  due_date?: string;
+  category?: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  agent_type: string;
+  description: string;
+  risk_level: string;
+}
+
+export interface AgentRun {
+  id: string;
+  agent_id: string;
+  task_id?: string;
+  status: string;
+  input_data: Record<string, unknown>;
+  output_data?: Record<string, unknown>;
+  error_message?: string;
+  created_at: string;
+}
+
+export interface CommandResult {
+  intent: string;
+  confidence: number;
+  target_agent?: string;
+  requires_confirmation: boolean;
+  confirmation_message?: string;
+  user_visible_summary: string;
+  command_id?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface CommandRecord {
+  id: string;
+  raw_input: string;
+  interpreted_intent?: string;
+  status: string;
+  created_at: string;
+}
+
+export interface Briefing {
+  id: string;
+  date: string;
+  summary: string;
+  top_priorities: string[];
+  meetings_to_prepare: string[];
+  urgent_followups: string[];
+  tasks_to_delegate: string[];
+  risks: string[];
+  recommended_schedule: string[];
+  focus_score: number;
+}

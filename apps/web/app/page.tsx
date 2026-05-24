@@ -1,275 +1,122 @@
-"use client";
+'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect } from 'react';
+import { Bell, Mic, User, Calendar, ChevronDown, Plus } from 'lucide-react';
+import { useStore } from '@/stores/useStore';
+import CommandBar from '@/components/command/CommandBar';
+import StatsBar from '@/components/dashboard/StatsBar';
+import TodayPriorities from '@/components/dashboard/TodayPriorities';
+import TodaySchedule from '@/components/dashboard/TodaySchedule';
+import DailyBrief from '@/components/dashboard/DailyBrief';
+import AgentWorkbench from '@/components/dashboard/AgentWorkbench';
+import InboxCaptures from '@/components/dashboard/InboxCaptures';
+import FollowUps from '@/components/dashboard/FollowUps';
+import AISuggestions from '@/components/dashboard/AISuggestions';
+import UpcomingAgenda from '@/components/dashboard/UpcomingAgenda';
+import DailyProgress from '@/components/dashboard/DailyProgress';
 
-type TaskStatus = "inbox" | "today" | "in_progress" | "waiting" | "deferred" | "scheduled" | "completed" | "archived";
-type TaskCategory = "office" | "personal" | "finance" | "health" | "errands" | "project";
-type TaskPriority = "critical" | "high" | "medium" | "low";
-
-type Task = {
-  id: number; title: string; description: string | null; category: TaskCategory; priority: TaskPriority; status: TaskStatus;
-  due_date: string | null; source: string | null; assigned_agent: string | null; created_at: string; updated_at: string;
-};
-
-type BriefResponse = { top_priorities: string[]; risks: string[]; suggested_schedule: string[]; follow_ups: string[]; recommended_deferrals: string[] };
-
-const API = "http://localhost:8000";
-const parseLines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
-  id: number;
-  title: string;
-  description: string | null;
-  category: TaskCategory;
-  priority: TaskPriority;
-  status: TaskStatus;
-  due_date: string | null;
-  source: string | null;
-  assigned_agent: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-const API = "http://localhost:8000";
-
-export default function HomePage() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [today, setToday] = useState<Task[]>([]);
-  const [overdue, setOverdue] = useState<Task[]>([]);
-  const [brief, setBrief] = useState<BriefResponse | null>(null);
-  const [briefErr, setBriefErr] = useState<string | null>(null);
-  const [meetings, setMeetings] = useState("");
-  const [followUps, setFollowUps] = useState("");
-  const [form, setForm] = useState({ title: "", description: "", category: "office", priority: "medium", status: "inbox", due_date: "" });
-
-  const load = async () => {
-    const [a, b, c] = await Promise.all([fetch(`${API}/tasks`).then((r) => r.json()), fetch(`${API}/tasks/today`).then((r) => r.json()), fetch(`${API}/tasks/overdue`).then((r) => r.json())]);
-    setTasks(a); setToday(b); setOverdue(c);
-  };
-  useEffect(() => { void load(); }, []);
-
-  const submit = async (e: FormEvent) => { e.preventDefault(); await fetch(`${API}/tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, due_date: form.due_date || null }) }); setForm({ title: "", description: "", category: "office", priority: "medium", status: "inbox", due_date: "" }); await load(); };
-  const updateStatus = async (id: number, status: TaskStatus) => { await fetch(`${API}/tasks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }); await load(); };
-  const removeTask = async (id: number) => { await fetch(`${API}/tasks/${id}`, { method: "DELETE" }); await load(); };
-
-  const generateBrief = async () => {
-    setBriefErr(null);
-    const res = await fetch(`${API}/ai/daily-brief/from-tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upcoming_meetings: parseLines(meetings), pending_follow_ups: parseLines(followUps) }) });
-    if (!res.ok) { setBrief(null); setBriefErr((await res.text()) || "Failed to generate brief"); return; }
-    setBrief(await res.json());
-  const [form, setForm] = useState({ title: "", description: "", category: "office", priority: "medium", status: "inbox", due_date: "" });
-
-  const load = async () => {
-    const [a, b, c] = await Promise.all([
-      fetch(`${API}/tasks`).then((r) => r.json()),
-      fetch(`${API}/tasks/today`).then((r) => r.json()),
-      fetch(`${API}/tasks/overdue`).then((r) => r.json()),
-    ]);
-    setTasks(a);
-    setToday(b);
-    setOverdue(c);
-  };
+export default function DashboardPage() {
+  const { loadTasks, loadAgents, loadBriefing, checkAI } = useStore();
 
   useEffect(() => {
-    void load();
-  }, []);
+    void Promise.allSettled([loadTasks(), loadAgents(), loadBriefing(), checkAI()]);
+  }, [loadTasks, loadAgents, loadBriefing, checkAI]);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    await fetch(`${API}/tasks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, due_date: form.due_date || null }),
-    });
-    setForm({ title: "", description: "", category: "office", priority: "medium", status: "inbox", due_date: "" });
-    await load();
-  };
-
-  const updateStatus = async (id: number, status: TaskStatus) => {
-    await fetch(`${API}/tasks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
-    await load();
-  };
-
-  const removeTask = async (id: number) => {
-    await fetch(`${API}/tasks/${id}`, { method: "DELETE" });
-    await load();
-  };
-
-  const sections = useMemo(() => [{ title: "All Tasks", data: tasks }, { title: "Today Queue", data: today }, { title: "Overdue", data: overdue }], [tasks, today, overdue]);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  });
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 p-8">
-      <h1 className="text-3xl font-semibold">Task Engine + Daily Brief</h1>
-      <section className="grid gap-3 rounded border border-slate-700 p-4 md:grid-cols-2">
-        <textarea className="min-h-24 rounded bg-slate-900 p-2" placeholder="Upcoming meetings (one per line)" value={meetings} onChange={(e) => setMeetings(e.target.value)} />
-        <textarea className="min-h-24 rounded bg-slate-900 p-2" placeholder="Pending follow-ups (one per line)" value={followUps} onChange={(e) => setFollowUps(e.target.value)} />
-        <button className="w-fit rounded bg-indigo-600 px-4 py-2" onClick={generateBrief}>Generate Daily Brief from Task Data</button>
-        {briefErr ? <p className="text-sm text-red-300">{briefErr}</p> : null}
-      </section>
-      {brief ? <section className="grid gap-3 md:grid-cols-2">{Object.entries(brief).map(([k,v]) => <article key={k} className="rounded border border-slate-700 p-3"><h3 className="font-semibold">{k.replaceAll("_"," ")}</h3><ul className="list-disc pl-5 text-sm text-slate-300">{v.map((x) => <li key={x}>{x}</li>)}</ul></article>)}</section> : null}
-      <h1 className="text-3xl font-semibold">Task Engine MVP</h1>
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <header className="flex items-center gap-4 px-6 py-3 border-b border-[#1e2847] bg-[#0d0f14] sticky top-0 z-30">
+        <div className="flex-shrink-0">
+          <h1 className="text-base font-bold text-white">{greeting}, Sumit! 👋</h1>
+          <p className="text-[11px] text-slate-500">Here&apos;s your plan for today.</p>
+        </div>
 
-      <form onSubmit={submit} className="grid gap-3 rounded border border-slate-700 p-4 md:grid-cols-2">
-        <input className="rounded bg-slate-900 p-2" placeholder="Task title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-        <input className="rounded bg-slate-900 p-2" placeholder="Due date YYYY-MM-DD" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
-        <input className="rounded bg-slate-900 p-2 md:col-span-2" placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        <select className="rounded bg-slate-900 p-2" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{["office","personal","finance","health","errands","project"].map((x) => <option key={x}>{x}</option>)}</select>
-        <select className="rounded bg-slate-900 p-2" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>{["critical","high","medium","low"].map((x) => <option key={x}>{x}</option>)}</select>
-        <select className="rounded bg-slate-900 p-2" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>{["inbox","today","in_progress","waiting","deferred","scheduled","completed","archived"].map((x) => <option key={x}>{x}</option>)}</select>
-        <button className="rounded bg-blue-600 px-4 py-2">Create Task</button>
-      </form>
+        <div className="flex-1 flex justify-center">
+          <CommandBar />
+        </div>
 
-      {sections.map((section) => <section key={section.title} className="rounded border border-slate-700 p-4"><h2 className="mb-3 text-xl font-semibold">{section.title}</h2><div className="grid gap-3">{section.data.map((task) => <article key={task.id} className="rounded border border-slate-800 p-3"><div className="flex items-center justify-between gap-2"><h3 className="font-medium">{task.title}</h3><span className="text-xs text-slate-400">{task.status}</span></div><p className="text-sm text-slate-300">{task.description}</p><p className="text-xs text-slate-400">{task.category} · {task.priority} · due {task.due_date ?? "n/a"}</p><div className="mt-2 flex gap-2"><button className="rounded bg-emerald-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "completed")}>Complete</button><button className="rounded bg-amber-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "deferred")}>Defer</button><button className="rounded bg-slate-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "in_progress")}>Start</button><button className="rounded bg-red-700 px-2 py-1 text-xs" onClick={() => removeTask(task.id)}>Delete</button></div></article>)}{section.data.length === 0 ? <p className="text-sm text-slate-400">No tasks.</p> : null}</div></section>)}
-        <select className="rounded bg-slate-900 p-2" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-          { ["office","personal","finance","health","errands","project"].map((x) => <option key={x}>{x}</option>) }
-        </select>
-        <select className="rounded bg-slate-900 p-2" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
-          { ["critical","high","medium","low"].map((x) => <option key={x}>{x}</option>) }
-        </select>
-        <select className="rounded bg-slate-900 p-2" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-          { ["inbox","today","in_progress","waiting","deferred","scheduled","completed","archived"].map((x) => <option key={x}>{x}</option>) }
-        </select>
-        <button className="rounded bg-blue-600 px-4 py-2">Create Task</button>
-      </form>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a2035] border border-[#1e2847] text-xs text-slate-300 hover:border-indigo-700/60 transition-colors">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+            <span>{today}</span>
+            <ChevronDown className="w-3 h-3 text-slate-500" />
+          </button>
 
-      {sections.map((section) => (
-        <section key={section.title} className="rounded border border-slate-700 p-4">
-          <h2 className="mb-3 text-xl font-semibold">{section.title}</h2>
-          <div className="grid gap-3">
-            {section.data.map((task) => (
-              <article key={task.id} className="rounded border border-slate-800 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-medium">{task.title}</h3>
-                  <span className="text-xs text-slate-400">{task.status}</span>
-                </div>
-                <p className="text-sm text-slate-300">{task.description}</p>
-                <p className="text-xs text-slate-400">{task.category} · {task.priority} · due {task.due_date ?? "n/a"}</p>
-                <div className="mt-2 flex gap-2">
-                  <button className="rounded bg-emerald-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "completed")}>Complete</button>
-                  <button className="rounded bg-amber-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "deferred")}>Defer</button>
-                  <button className="rounded bg-slate-700 px-2 py-1 text-xs" onClick={() => updateStatus(task.id, "in_progress")}>Start</button>
-                  <button className="rounded bg-red-700 px-2 py-1 text-xs" onClick={() => removeTask(task.id)}>Delete</button>
-                </div>
-              </article>
-            ))}
-            {section.data.length === 0 ? <p className="text-sm text-slate-400">No tasks.</p> : null}
-          </div>
-        </section>
-      ))}
-import { FormEvent, useState } from "react";
+          <button className="relative w-8 h-8 rounded-lg bg-[#1a2035] border border-[#1e2847] flex items-center justify-center text-slate-400 hover:text-white transition-colors">
+            <Bell className="w-4 h-4" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[9px] text-white flex items-center justify-center font-bold">3</span>
+          </button>
 
-type BriefResponse = {
-  top_priorities: string[];
-  risks: string[];
-  suggested_schedule: string[];
-  follow_ups: string[];
-  recommended_deferrals: string[];
-};
+          <button className="w-8 h-8 rounded-lg bg-[#1a2035] border border-[#1e2847] flex items-center justify-center text-slate-400 hover:text-indigo-400 transition-colors">
+            <Mic className="w-4 h-4" />
+          </button>
 
-const parseLines = (text: string): string[] =>
-  text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+          <button className="flex items-center gap-2 px-2 py-1 rounded-lg bg-[#1a2035] border border-[#1e2847] hover:border-indigo-700/60 transition-colors">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+              <User className="w-3.5 h-3.5 text-white" />
+            </div>
+            <div className="hidden sm:block text-left">
+              <p className="text-xs font-medium text-white leading-none">Sumit</p>
+              <p className="text-[9px] text-emerald-400 leading-none mt-0.5">● Focus Mode</p>
+            </div>
+          </button>
+        </div>
+      </header>
 
-export default function HomePage() {
-  const [todaysTasks, setTodaysTasks] = useState("");
-  const [overdueTasks, setOverdueTasks] = useState("");
-  const [upcomingMeetings, setUpcomingMeetings] = useState("");
-  const [pendingFollowUps, setPendingFollowUps] = useState("");
-  const [brief, setBrief] = useState<BriefResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+      {/* Stats Bar */}
+      <div className="px-6 py-2.5 border-b border-[#1e2847] bg-[#0a0c10]">
+        <StatsBar />
+      </div>
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch("http://localhost:8000/ai/daily-brief", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          todays_tasks: parseLines(todaysTasks),
-          overdue_tasks: parseLines(overdueTasks),
-          upcoming_meetings: parseLines(upcomingMeetings),
-          pending_follow_ups: parseLines(pendingFollowUps),
-        }),
-      });
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Unable to generate daily brief");
-      }
-
-      const data: BriefResponse = await response.json();
-      setBrief(data);
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Unknown error");
-      setBrief(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 p-8">
-      <h1 className="text-3xl font-semibold">Daily Brief</h1>
-      <p className="text-slate-300">Generate a local AI morning brief from your current work context.</p>
-
-      <form onSubmit={onSubmit} className="grid gap-4 rounded-lg border border-slate-700 p-4">
-        {[
-          ["Today&apos;s Tasks", todaysTasks, setTodaysTasks],
-          ["Overdue Tasks", overdueTasks, setOverdueTasks],
-          ["Upcoming Meetings", upcomingMeetings, setUpcomingMeetings],
-          ["Pending Follow-ups", pendingFollowUps, setPendingFollowUps],
-        ].map(([label, value, setValue]) => (
-          <label key={label as string} className="grid gap-2 text-sm">
-            <span className="font-medium">{label as string} (one per line)</span>
-            <textarea
-              className="min-h-24 rounded-md border border-slate-600 bg-slate-900 p-2"
-              value={value as string}
-              onChange={(e) => (setValue as (v: string) => void)(e.target.value)}
-            />
-          </label>
-        ))}
-
-        <button
-          type="submit"
-          className="w-fit rounded-md bg-blue-600 px-4 py-2 font-medium hover:bg-blue-500 disabled:opacity-60"
-          disabled={loading}
-        >
-          {loading ? "Generating..." : "Generate Brief"}
+      {/* Quick Capture CTA */}
+      <div className="px-6 pt-4 flex items-center justify-between">
+        <div />
+        <button className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs text-white font-medium transition-colors">
+          <Plus className="w-3.5 h-3.5" />
+          Quick Capture
         </button>
-      </form>
+      </div>
 
-      {error ? <div className="rounded-md border border-red-500 p-3 text-red-300">{error}</div> : null}
+      {/* Main Grid */}
+      <div className="flex-1 overflow-y-auto p-4 pt-3">
+        <div className="flex gap-4 min-h-full">
+          {/* Center — main content */}
+          <div className="flex-1 min-w-0 space-y-4">
+            {/* Row 1: Priorities + Schedule */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <TodayPriorities />
+              <TodaySchedule />
+            </div>
 
-      {brief ? (
-        <section className="grid gap-4 md:grid-cols-2">
-          {Object.entries(brief).map(([section, items]) => (
-            <article key={section} className="rounded-lg border border-slate-700 p-4">
-              <h2 className="mb-2 text-lg font-semibold capitalize">{section.replaceAll("_", " ")}</h2>
-              <ul className="list-disc space-y-1 pl-5 text-slate-300">
-                {items.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </section>
-      ) : null}
-export default function HomePage() {
-  return (
-    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 p-8">
-      <h1 className="text-3xl font-semibold">Project IronMAn</h1>
-      <p className="text-slate-300">
-        A local-first AI Personal Command Center scaffold is up and running.
-      </p>
-      <ul className="list-disc space-y-2 pl-6 text-slate-300">
-        <li>Next.js frontend initialized</li>
-        <li>FastAPI backend initialized</li>
-        <li>Postgres, Redis, Qdrant, Ollama compose services ready</li>
-      </ul>
-    </main>
+            {/* Row 2: AI Daily Brief + Agent Workbench */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+              <div className="xl:col-span-2">
+                <AgentWorkbench />
+              </div>
+              <DailyBrief />
+            </div>
+
+            {/* Row 3: Inbox + Follow-ups */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <InboxCaptures />
+              <FollowUps />
+            </div>
+          </div>
+
+          {/* Right sidebar */}
+          <div className="hidden 2xl:flex flex-col w-72 flex-shrink-0 gap-4">
+            <AISuggestions />
+            <UpcomingAgenda />
+            <DailyProgress />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
