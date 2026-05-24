@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.database import Base, engine
 from app.routes import tasks, agents, commands, briefings, ai, voice, settings
+from app.routes import eod, integrations as integrations_router
 from app.agents.registry import get_registry
 from app.agents.task_classifier import TaskClassifierAgent
 from app.agents.daily_briefing import DailyBriefingAgent
@@ -14,6 +15,7 @@ from app.agents.document_agent import DocumentAgent
 from app.agents.research_agent import ResearchAgent
 from app.agents.routine_agent import RoutineAgent
 from app.agents.orchestrator_agent import OrchestratorAgent
+from app.agents.call_agent import CallAgent
 
 Base.metadata.create_all(bind=engine)
 
@@ -38,6 +40,7 @@ for agent in [
     ResearchAgent(),
     RoutineAgent(),
     OrchestratorAgent(),
+    CallAgent(),
 ]:
     registry.register(agent)
 
@@ -62,6 +65,8 @@ app.include_router(briefings.router)
 app.include_router(ai.router)
 app.include_router(voice.router)
 app.include_router(settings.router)
+app.include_router(eod.router)
+app.include_router(integrations_router.router)
 
 
 @app.get("/health")

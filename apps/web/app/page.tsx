@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bell, Mic, User, Calendar, ChevronDown, Plus } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { useStore } from '@/stores/useStore';
 import { api } from '@/lib/api';
 import CommandBar from '@/components/command/CommandBar';
@@ -111,30 +112,46 @@ export default function DashboardPage() {
           <div className="flex-1 min-w-0 space-y-4">
             {/* Row 1: Priorities + Schedule */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <TodayPriorities />
-              <TodaySchedule />
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.0 }}>
+                <TodayPriorities />
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.08 }}>
+                <TodaySchedule />
+              </motion.div>
             </div>
 
             {/* Row 2: AI Daily Brief + Agent Workbench */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-              <div className="xl:col-span-2">
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.16 }} className="xl:col-span-2">
                 <AgentWorkbench />
-              </div>
-              <DailyBrief />
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.24 }}>
+                <DailyBrief />
+              </motion.div>
             </div>
 
             {/* Row 3: Inbox + Follow-ups */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <InboxCaptures />
-              <FollowUps />
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.32 }}>
+                <InboxCaptures />
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.40 }}>
+                <FollowUps />
+              </motion.div>
             </div>
           </div>
 
           {/* Right sidebar */}
           <div className="hidden 2xl:flex flex-col w-72 flex-shrink-0 gap-4">
-            <AISuggestions />
-            <UpcomingAgenda />
-            <DailyProgress />
+            <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, delay: 0.15 }}>
+              <AISuggestions />
+            </motion.div>
+            <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, delay: 0.25 }}>
+              <UpcomingAgenda />
+            </motion.div>
+            <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, delay: 0.35 }}>
+              <DailyProgress />
+            </motion.div>
           </div>
         </div>
       </div>

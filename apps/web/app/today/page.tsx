@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, ArrowDownRight, Loader2 } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { CheckCircle2, Clock, ArrowDownRight, Loader2, Plus } from 'lucide-react';
 import { useStore } from '@/stores/useStore';
 import { api } from '@/lib/api';
 import { clsx } from 'clsx';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const PRIORITY_STYLES: Record<string, string> = {
   urgent: 'bg-red-500/10 text-red-400 border-red-800/40',
@@ -13,11 +14,13 @@ const PRIORITY_STYLES: Record<string, string> = {
   low:    'bg-emerald-500/10 text-emerald-400 border-emerald-800/40',
 };
 
+const SWIPE_THRESHOLD = 80;
+
 export default function TodayPage() {
-  const { todayTasks, overdueTasks, loadTasks, completeTask, deferTask } = useStore();
+  const { todayTasks, overdueTasks, loadTasks } = useStore();
   const [newTitle, setNewTitle] = useState('');
   const [creating, setCreating] = useState(false);
-  const [deferring, setDeferring] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
 
@@ -31,28 +34,45 @@ export default function TodayPage() {
     setCreating(false);
   };
 
-  const handleDefer = async (id: string) => {
-    setDeferring(id);
-    await deferTask(id);
-    setDeferring(null);
-  };
+  const handleSwipeComplete = useCallback(async (id: string) => {
+    setDismissed(s => new Set([...s, id]));
+    await api.completeTask(id).catch(() => null);
+    setTimeout(() => loadTasks(), 400);
+  }, [loadTasks]);
+
+  const handleSwipeDefer = useCallback(async (id: string) => {
+    setDismissed(s => new Set([...s, id]));
+    await api.deferTask(id).catch(() => null);
+    setTimeout(() => loadTasks(), 400);
+  }, [loadTasks]);
 
   const allTasks = [
     ...overdueTasks.map((t) => ({ ...t, _overdue: true })),
     ...todayTasks.map((t) => ({ ...t, _overdue: false })),
-  ];
+  ].filter(t => !dismissed.has(t.id));
 
   return (
     <div className="p-6 max-w-3xl">
-      <div className="mb-6">
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-6"
+      >
         <h1 className="text-2xl font-bold text-white">Today Queue</h1>
         <p className="text-sm text-slate-500 mt-0.5">
           {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
         </p>
-      </div>
+        <p className="text-xs text-slate-700 mt-1">← Swipe left to defer · Swipe right to complete →</p>
+      </motion.div>
 
       {/* Add task */}
-      <form onSubmit={handleCreate} className="flex gap-2 mb-6">
+      <motion.form
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        onSubmit={handleCreate}
+        className="flex gap-2 mb-6"
+      >
         <input
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
@@ -64,82 +84,133 @@ export default function TodayPage() {
           disabled={creating}
           className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 rounded-xl text-sm text-white font-medium transition-colors"
         >
-          {creating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
           Add
         </button>
-      </form>
+      </motion.form>
 
       {/* Task list */}
       <div className="space-y-2">
-        {overdueTasks.length > 0 && (
-          <p className="text-xs text-red-400 font-medium uppercase tracking-wider mb-1">Overdue</p>
+        {overdueTasks.length > 0 && !dismissed.has(overdueTasks[0].id) && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-xs text-red-400 font-medium uppercase tracking-wider mb-1"
+          >
+            Overdue
+          </motion.p>
         )}
 
-        {allTasks.map((task: any) => (
-          <div
-            key={task.id}
-            className={clsx(
-              'glass-card p-3 flex items-center gap-3 group hover:border-indigo-800/50 transition-all',
-              task._overdue && 'border-red-900/50 bg-red-950/10',
-            )}
-          >
-            <button
-              onClick={() => completeTask(task.id)}
-              className="flex-shrink-0 text-slate-600 hover:text-emerald-400 transition-colors"
-            >
-              <CheckCircle2 className="w-5 h-5" />
-            </button>
-
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-white">{task.title}</p>
-              {task.description && (
-                <p className="text-xs text-slate-500 mt-0.5 truncate">{task.description}</p>
-              )}
-              {task.due_date && (
-                <p className="text-[10px] text-slate-600 mt-0.5 flex items-center gap-1">
-                  <Clock className="w-3 h-3" /> Due {task.due_date}
-                </p>
-              )}
-            </div>
-
-            {task._overdue && (
-              <span className="text-[10px] text-red-400 bg-red-950/60 border border-red-900/40 px-2 py-0.5 rounded-full flex-shrink-0">
-                overdue
-              </span>
-            )}
-
-            <span
-              className={clsx(
-                'text-[10px] px-2 py-0.5 rounded-full border capitalize font-medium flex-shrink-0',
-                PRIORITY_STYLES[task.priority] ?? PRIORITY_STYLES.medium,
-              )}
-            >
-              {task.priority}
-            </span>
-
-            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all">
-              <button
-                onClick={() => handleDefer(task.id)}
-                disabled={deferring === task.id}
-                className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-amber-950/40 text-amber-400 hover:bg-amber-950/70 transition-colors"
-              >
-                {deferring === task.id
-                  ? <Loader2 className="w-3 h-3 animate-spin" />
-                  : <ArrowDownRight className="w-3 h-3" />
-                }
-                Defer
-              </button>
-            </div>
-          </div>
-        ))}
+        <AnimatePresence>
+          {allTasks.map((task, index) => (
+            <SwipeableTask
+              key={task.id}
+              task={task as typeof task & { _overdue: boolean }}
+              index={index}
+              onComplete={() => void handleSwipeComplete(task.id)}
+              onDefer={() => void handleSwipeDefer(task.id)}
+            />
+          ))}
+        </AnimatePresence>
 
         {allTasks.length === 0 && (
-          <div className="glass-card p-10 text-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="glass-card p-10 text-center"
+          >
             <p className="text-slate-400 text-sm">No tasks for today.</p>
             <p className="text-slate-600 text-xs mt-1">Add one above or use the command bar.</p>
-          </div>
+          </motion.div>
         )}
       </div>
     </div>
+  );
+}
+
+function SwipeableTask({
+  task, index, onComplete, onDefer,
+}: {
+  task: { id: string; title: string; description?: string; due_date?: string; priority: string; _overdue: boolean };
+  index: number;
+  onComplete: () => void;
+  onDefer: () => void;
+}) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+      transition={{ duration: 0.25, delay: index * 0.04 }}
+      className="relative overflow-hidden rounded-2xl"
+    >
+      {/* Swipe hint backgrounds */}
+      <div className="absolute inset-0 flex">
+        <div className="flex-1 bg-emerald-950/60 flex items-center pl-4">
+          <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
+            <CheckCircle2 className="w-4 h-4" /> Complete
+          </span>
+        </div>
+        <div className="flex-1 bg-amber-950/60 flex items-center justify-end pr-4">
+          <span className="text-xs text-amber-400 font-medium flex items-center gap-1">
+            Defer <ArrowDownRight className="w-4 h-4" />
+          </span>
+        </div>
+      </div>
+
+      <motion.div
+        drag="x"
+        dragConstraints={{ left: -160, right: 160 }}
+        dragElastic={0.15}
+        onDragEnd={(_, info) => {
+          if (info.offset.x > SWIPE_THRESHOLD) onComplete();
+          else if (info.offset.x < -SWIPE_THRESHOLD) onDefer();
+        }}
+        className={clsx(
+          'relative glass-card p-3 flex items-center gap-3 group hover:border-indigo-800/50 transition-all cursor-grab active:cursor-grabbing',
+          task._overdue && 'border-red-900/50 bg-red-950/10',
+        )}
+      >
+        <button
+          onClick={onComplete}
+          className="flex-shrink-0 text-slate-600 hover:text-emerald-400 transition-colors"
+          onPointerDown={e => e.stopPropagation()}
+        >
+          <CheckCircle2 className="w-5 h-5" />
+        </button>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-white">{task.title}</p>
+          {task.description && (
+            <p className="text-xs text-slate-500 mt-0.5 truncate">{task.description}</p>
+          )}
+          {task.due_date && (
+            <p className="text-[10px] text-slate-600 mt-0.5 flex items-center gap-1">
+              <Clock className="w-3 h-3" /> Due {task.due_date}
+            </p>
+          )}
+        </div>
+
+        {task._overdue && (
+          <span className="text-[10px] text-red-400 bg-red-950/60 border border-red-900/40 px-2 py-0.5 rounded-full flex-shrink-0">
+            overdue
+          </span>
+        )}
+
+        <span className={clsx('text-[10px] px-2 py-0.5 rounded-full border capitalize font-medium flex-shrink-0', PRIORITY_STYLES[task.priority] ?? PRIORITY_STYLES.medium)}>
+          {task.priority}
+        </span>
+
+        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all" onPointerDown={e => e.stopPropagation()}>
+          <button
+            onClick={onDefer}
+            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-amber-950/40 text-amber-400 hover:bg-amber-950/70 transition-colors"
+          >
+            <ArrowDownRight className="w-3 h-3" /> Defer
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
