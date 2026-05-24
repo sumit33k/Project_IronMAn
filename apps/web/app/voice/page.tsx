@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Mic, MicOff, Loader2, CheckCircle, AlertCircle, Volume2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Mic, MicOff, Loader2, CheckCircle, AlertCircle, Volume2, History } from 'lucide-react';
 import { useStore } from '@/stores/useStore';
+import { api, VoiceHistoryRecord } from '@/lib/api';
 import { clsx } from 'clsx';
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'done' | 'error';
@@ -12,8 +13,19 @@ export default function VoicePage() {
   const [transcript, setTranscript] = useState('');
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [history, setHistory] = useState<VoiceHistoryRecord[]>([]);
   const recognitionRef = useRef<unknown>(null);
+  const finalTranscriptRef = useRef('');
   const { routeCommand } = useStore();
+
+  useEffect(() => {
+    api.getVoiceHistory()
+      .then((data) => setHistory(data.slice(0, 5)))
+      .catch(() => {
+        // History endpoint may not exist yet — fail silently
+      });
+  }, []);
 
   const startListening = () => {
     const SpeechRecognition =
@@ -34,20 +46,19 @@ export default function VoicePage() {
     setTranscript('');
     setResult(null);
     setErrorMsg('');
+    setConfirmed(false);
+    finalTranscriptRef.current = '';
 
     recognition.onresult = (e: any) => {
       const t = Array.from(e.results as any[])
         .map((r: any) => r[0].transcript)
         .join('');
       setTranscript(t);
+      finalTranscriptRef.current = t;
     };
 
     recognition.onend = async () => {
-      if (!transcript && !(recognition as any)._finalTranscript) {
-        setVoiceState('idle');
-        return;
-      }
-      const final = transcript;
+      const final = finalTranscriptRef.current;
       if (!final.trim()) { setVoiceState('idle'); return; }
 
       setVoiceState('processing');
@@ -55,6 +66,10 @@ export default function VoicePage() {
         const r = await routeCommand(final);
         setResult(r as unknown as Record<string, unknown>);
         setVoiceState('done');
+        // Refresh history after a new command
+        api.getVoiceHistory()
+          .then((data) => setHistory(data.slice(0, 5)))
+          .catch(() => {});
       } catch {
         setErrorMsg('Failed to process command. Is the API running?');
         setVoiceState('error');
@@ -73,6 +88,35 @@ export default function VoicePage() {
   const stopListening = () => {
     (recognitionRef.current as any)?.stop();
     setVoiceState('idle');
+  };
+
+  const handleConfirm = () => {
+    setConfirmed(true);
+  };
+
+  const handleCancel = () => {
+    setResult(null);
+    setTranscript('');
+    setConfirmed(false);
+    finalTranscriptRef.current = '';
+    setVoiceState('idle');
+  };
+
+  const parseIntent = (routingResult: string): string => {
+    try {
+      const parsed = JSON.parse(routingResult);
+      return parsed.intent ?? routingResult;
+    } catch {
+      return routingResult;
+    }
+  };
+
+  const formatTimestamp = (iso: string): string => {
+    try {
+      return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return iso;
+    }
   };
 
   const buttonLabel: Record<VoiceState, string> = {
@@ -143,13 +187,28 @@ export default function VoicePage() {
           </div>
           <p className="text-sm text-slate-200">{String(result.user_visible_summary)}</p>
           {result.requires_confirmation && (
-            <div className="mt-3 flex gap-2">
-              <button className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs text-white font-medium transition-colors">
-                Confirm
-              </button>
-              <button className="px-3 py-1.5 bg-[#1a2035] hover:bg-[#1e2847] rounded-lg text-xs text-slate-300 transition-colors">
-                Cancel
-              </button>
+            <div className="mt-3 flex gap-2 items-center">
+              {confirmed ? (
+                <p className="text-xs text-emerald-400 flex items-center gap-1">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Command confirmed. Jarvis will execute this when the integration is ready.
+                </p>
+              ) : (
+                <>
+                  <button
+                    onClick={handleConfirm}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs text-white font-medium transition-colors"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    className="px-3 py-1.5 bg-[#1a2035] hover:bg-[#1e2847] rounded-lg text-xs text-slate-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -163,7 +222,7 @@ export default function VoicePage() {
       )}
 
       {/* Wake word section */}
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 mb-4">
         <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
           <Volume2 className="w-4 h-4 text-indigo-400" />
           Wake Word Settings
@@ -197,6 +256,33 @@ export default function VoicePage() {
             </span>
           </div>
         </div>
+      </div>
+
+      {/* Recent Voice Commands */}
+      <div className="glass-card p-4">
+        <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+          <History className="w-4 h-4 text-indigo-400" />
+          Recent Voice Commands
+        </h3>
+        {history.length === 0 ? (
+          <p className="text-xs text-slate-500">No voice commands recorded yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {history.map((entry) => (
+              <div key={entry.id} className="flex items-start justify-between gap-3 py-2 border-b border-[#1e2847] last:border-0">
+                <div className="min-w-0">
+                  <p className="text-xs text-white truncate">&quot;{entry.text}&quot;</p>
+                  <p className="text-[10px] text-indigo-400 font-mono mt-0.5">
+                    {parseIntent(entry.routing_result)}
+                  </p>
+                </div>
+                <span className="text-[10px] text-slate-500 flex-shrink-0 mt-0.5">
+                  {formatTimestamp(entry.created_at)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
