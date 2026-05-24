@@ -3,3 +3,8 @@ dist/
 .graphify-work/
 public/graph.json
 .DS_Store
+tasks.db
+
+__pycache__/
+*.pyc
+*.db
