@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Bell, Mic, User, Calendar, ChevronDown, Plus } from 'lucide-react';
 import { useStore } from '@/stores/useStore';
+import { api } from '@/lib/api';
 import CommandBar from '@/components/command/CommandBar';
 import StatsBar from '@/components/dashboard/StatsBar';
 import TodayPriorities from '@/components/dashboard/TodayPriorities';
@@ -16,11 +18,30 @@ import UpcomingAgenda from '@/components/dashboard/UpcomingAgenda';
 import DailyProgress from '@/components/dashboard/DailyProgress';
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const [setupChecked, setSetupChecked] = useState(false);
   const { loadTasks, loadAgents, loadBriefing, checkAI } = useStore();
 
   useEffect(() => {
+    api.getSettings()
+      .then((settings) => {
+        if (!settings.setup_complete) {
+          router.push('/setup');
+        } else {
+          setSetupChecked(true);
+        }
+      })
+      .catch(() => {
+        setSetupChecked(true);
+      });
+  }, [router]);
+
+  useEffect(() => {
+    if (!setupChecked) return;
     void Promise.allSettled([loadTasks(), loadAgents(), loadBriefing(), checkAI()]);
-  }, [loadTasks, loadAgents, loadBriefing, checkAI]);
+  }, [setupChecked, loadTasks, loadAgents, loadBriefing, checkAI]);
+
+  if (!setupChecked) return null;
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';

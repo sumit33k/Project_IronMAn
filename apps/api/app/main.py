@@ -17,6 +17,15 @@ from app.agents.orchestrator_agent import OrchestratorAgent
 
 Base.metadata.create_all(bind=engine)
 
+# Initialize integration registry slots (no user data)
+from app.seed import seed_integrations
+from app.db.database import SessionLocal as _SL
+_db = _SL()
+try:
+    seed_integrations(_db)
+finally:
+    _db.close()
+
 registry = get_registry()
 for agent in [
     TaskClassifierAgent(),
