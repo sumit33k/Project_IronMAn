@@ -1,4 +1,9 @@
 import "./globals.css";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Project IronMAn",
+  description: "Local-first AI Personal Command Center",
 import type { Metadata, Viewport } from "next";
 import Sidebar from "@/components/layout/Sidebar";
 import Script from "next/script";
@@ -30,6 +35,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
+    <html lang="en">
+      <body>{children}</body>
     <html lang="en" className="dark">
       <head>
         <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
