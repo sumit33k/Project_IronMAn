@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Mic, MicOff, Loader2, CheckCircle, AlertCircle, Volume2, History } from 'lucide-react';
 import { useStore } from '@/stores/useStore';
-import { api, VoiceHistoryRecord } from '@/lib/api';
+import { api, type CommandResult, type VoiceHistoryRecord } from '@/lib/api';
 import { clsx } from 'clsx';
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'done' | 'error';
@@ -11,7 +11,7 @@ type VoiceState = 'idle' | 'listening' | 'processing' | 'done' | 'error';
 export default function VoicePage() {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [transcript, setTranscript] = useState('');
-  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [result, setResult] = useState<CommandResult | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [history, setHistory] = useState<VoiceHistoryRecord[]>([]);
@@ -64,7 +64,7 @@ export default function VoicePage() {
       setVoiceState('processing');
       try {
         const r = await routeCommand(final);
-        setResult(r as unknown as Record<string, unknown>);
+        setResult(r);
         setVoiceState('done');
         // Refresh history after a new command
         api.getVoiceHistory()

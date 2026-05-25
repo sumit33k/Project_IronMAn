@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, type AppSettings } from '@/lib/api';
 import { useStore } from '@/stores/useStore';
 import { Settings, CheckCircle, XCircle, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Record<string, unknown>>({});
+  const [settings, setSettings] = useState<AppSettings>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const { ollamaAvailable, checkAI } = useStore();

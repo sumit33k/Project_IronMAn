@@ -45,8 +45,8 @@ export const api = {
 
   // AI / Settings
   aiHealth: () => apiFetch<{ ollama_available: boolean; models: string[] }>('/ai/health'),
-  getSettings: () => apiFetch<Record<string, unknown>>('/settings'),
-  updateSettings: (data: Record<string, unknown>) => apiFetch<Record<string, unknown>>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+  getSettings: () => apiFetch<AppSettings>('/settings'),
+  updateSettings: (data: AppSettings) => apiFetch<AppSettings>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Single task
   getTask: (id: string) => apiFetch<Task>(`/tasks/${id}`),
@@ -109,6 +109,7 @@ export interface Agent {
   agent_type: string;
   description: string;
   risk_level: string;
+  requires_approval_for: string[];
 }
 
 export interface AgentRun {
@@ -120,6 +121,25 @@ export interface AgentRun {
   output_data?: Record<string, unknown>;
   error_message?: string;
   created_at: string;
+}
+
+export interface AppSettings {
+  [key: string]: unknown;
+  ollama_base_url?: string;
+  ollama_model?: string;
+  wake_phrase?: string;
+  voice_enabled?: boolean;
+  tts_enabled?: boolean;
+  user_name?: string;
+  theme?: string;
+  approval_policy?: string;
+  cloud_provider_enabled?: boolean;
+  cloud_provider?: string;
+  cloud_api_key?: string;
+  cloud_model?: string;
+  data_sharing_acknowledged?: boolean;
+  setup_complete?: boolean;
+  setup_completed_at?: string | null;
 }
 
 export interface CommandResult {
