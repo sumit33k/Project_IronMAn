@@ -16,7 +16,7 @@ from app.agents.robot_agent import RobotAgent
 from app.agents.routine_agent import RoutineAgent
 from app.agents.task_classifier import TaskClassifierAgent
 from app.db.database import Base, SessionLocal, engine
-from app.routes import agents, ai, briefings, commands, settings, tasks, voice
+from app.routes import agents, ai, briefings, commands, settings as settings_router, tasks, voice
 from app.routes import eod, integrations as integrations_router, robots as robots_router
 from app.routes import presentations as presentations_router
 from app.seed import seed_integrations
@@ -69,7 +69,7 @@ app.include_router(commands.router)
 app.include_router(briefings.router)
 app.include_router(ai.router)
 app.include_router(voice.router)
-app.include_router(settings.router)
+app.include_router(settings_router.router)
 app.include_router(eod.router)
 app.include_router(integrations_router.router)
 app.include_router(robots_router.router)
