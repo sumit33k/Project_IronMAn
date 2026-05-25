@@ -21,3 +21,4 @@ next-env.d.ts
 # Misc
 *.tsbuildinfo
 .env
+apps/api/app/db/__pycache__/
