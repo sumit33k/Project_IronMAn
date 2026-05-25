@@ -17,23 +17,36 @@ class OllamaClient:
         self.model = settings.ollama_model
         self.timeout = settings.ollama_timeout
 
+    def _candidate_urls(self) -> list[str]:
+        """Return base URLs to try, adding a 127.0.0.1 variant when base uses localhost."""
+        urls = [self.base_url]
+        if "localhost" in self.base_url:
+            urls.append(self.base_url.replace("localhost", "127.0.0.1"))
+        return urls
+
     async def health_check(self) -> bool:
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.get(f"{self.base_url}/api/tags")
-                return r.status_code == 200
-        except Exception:
-            return False
+        """Check reachability via Ollama's root endpoint ('Ollama is running')."""
+        async with httpx.AsyncClient(timeout=5) as client:
+            for url in self._candidate_urls():
+                try:
+                    r = await client.get(url)
+                    if r.status_code == 200:
+                        return True
+                except Exception:
+                    continue
+        return False
 
     async def list_models(self) -> list[str]:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(f"{self.base_url}/api/tags")
-                r.raise_for_status()
-                data = r.json()
-                return [m["name"] for m in data.get("models", [])]
-        except Exception:
-            return []
+        async with httpx.AsyncClient(timeout=10) as client:
+            for url in self._candidate_urls():
+                try:
+                    r = await client.get(f"{url}/api/tags")
+                    r.raise_for_status()
+                    data = r.json()
+                    return [m["name"] for m in data.get("models", [])]
+                except Exception:
+                    continue
+        return []
 
     async def generate(self, prompt: str, model: str | None = None) -> str:
         payload = {
@@ -42,15 +55,19 @@ class OllamaClient:
             "stream": False,
             "options": {"temperature": settings.ollama_temperature},
         }
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                r = await client.post(f"{self.base_url}/api/generate", json=payload)
-                r.raise_for_status()
-                return r.json().get("response", "")
-        except httpx.ConnectError:
-            raise OllamaUnavailableError("Ollama is not running. Start it with: ollama serve")
-        except Exception as e:
-            raise OllamaUnavailableError(f"Ollama error: {e}")
+        last_err: Exception = OllamaUnavailableError("Ollama is not running. Start it with: ollama serve")
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for url in self._candidate_urls():
+                try:
+                    r = await client.post(f"{url}/api/generate", json=payload)
+                    r.raise_for_status()
+                    return r.json().get("response", "")
+                except (httpx.ConnectError, httpx.ConnectTimeout):
+                    continue
+                except Exception as e:
+                    last_err = OllamaUnavailableError(f"Ollama error: {e}")
+                    break
+        raise last_err
 
     async def chat(self, messages: list[dict], model: str | None = None) -> str:
         payload = {
@@ -59,15 +76,19 @@ class OllamaClient:
             "stream": False,
             "options": {"temperature": settings.ollama_temperature},
         }
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                r = await client.post(f"{self.base_url}/api/chat", json=payload)
-                r.raise_for_status()
-                return r.json().get("message", {}).get("content", "")
-        except httpx.ConnectError:
-            raise OllamaUnavailableError("Ollama is not running. Start it with: ollama serve")
-        except Exception as e:
-            raise OllamaUnavailableError(f"Ollama error: {e}")
+        last_err: Exception = OllamaUnavailableError("Ollama is not running. Start it with: ollama serve")
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for url in self._candidate_urls():
+                try:
+                    r = await client.post(f"{url}/api/chat", json=payload)
+                    r.raise_for_status()
+                    return r.json().get("message", {}).get("content", "")
+                except (httpx.ConnectError, httpx.ConnectTimeout):
+                    continue
+                except Exception as e:
+                    last_err = OllamaUnavailableError(f"Ollama error: {e}")
+                    break
+        raise last_err
 
     async def classify_json(self, prompt: str, schema_hint: str = "") -> dict:
         full_prompt = f"{prompt}\n\nRespond with valid JSON only. No markdown, no explanation."
