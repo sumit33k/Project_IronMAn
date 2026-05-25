@@ -3,6 +3,11 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light dark;
+}
+
+body {
+  @apply min-h-screen bg-slate-950 text-slate-100 antialiased;
   --bg-base: #0d0f14;
   --bg-card: #131720;
   --bg-elevated: #1a2035;
