@@ -30,13 +30,13 @@ def upgrade() -> None:
     sa.Column('model_provider', sa.String(length=64), nullable=False),
     sa.Column('model_name', sa.String(length=128), nullable=False),
     sa.Column('requires_approval_for', sa.Text(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('app_settings',
     sa.Column('key', sa.String(length=255), nullable=False),
     sa.Column('value', sa.Text(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.PrimaryKeyConstraint('key')
     )
     op.create_table('commands',
@@ -48,7 +48,7 @@ def upgrade() -> None:
     sa.Column('payload', sa.Text(), nullable=False),
     sa.Column('requires_confirmation', sa.Boolean(), nullable=False),
     sa.Column('status', sa.String(length=32), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('daily_briefings',
@@ -62,7 +62,7 @@ def upgrade() -> None:
     sa.Column('risks', sa.Text(), nullable=False),
     sa.Column('recommended_schedule', sa.Text(), nullable=False),
     sa.Column('focus_score', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('integrations',
@@ -72,7 +72,7 @@ def upgrade() -> None:
     sa.Column('status', sa.String(length=32), nullable=False),
     sa.Column('config', sa.Text(), nullable=False),
     sa.Column('last_sync_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('iot_devices',
@@ -84,7 +84,7 @@ def upgrade() -> None:
     sa.Column('status', sa.String(length=32), nullable=False),
     sa.Column('last_state', sa.Text(), nullable=False),
     sa.Column('last_seen_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('oauth_tokens',
@@ -94,8 +94,8 @@ def upgrade() -> None:
     sa.Column('refresh_token_encrypted', sa.Text(), nullable=True),
     sa.Column('token_type', sa.String(length=32), nullable=True),
     sa.Column('expires_at', sa.String(length=64), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('provider')
     )
@@ -108,8 +108,8 @@ def upgrade() -> None:
     sa.Column('status', sa.String(length=32), nullable=False),
     sa.Column('priority', sa.String(length=16), nullable=False),
     sa.Column('due_date', sa.String(length=32), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('deferred_until', sa.String(length=32), nullable=True),
     sa.Column('category', sa.String(length=64), nullable=False),
@@ -130,7 +130,7 @@ def upgrade() -> None:
     sa.Column('input_data', sa.Text(), nullable=False),
     sa.Column('output_data', sa.Text(), nullable=True),
     sa.Column('error_message', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['agent_id'], ['agents.id'], ),
     sa.ForeignKeyConstraint(['task_id'], ['tasks.id'], ),
