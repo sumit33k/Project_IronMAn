@@ -6,10 +6,14 @@
   "build": {
     "beforeDevCommand": "cd ../../../apps/web && npm run dev",
     "devUrl": "http://localhost:3000",
-    "beforeBuildCommand": "cd ../../../apps/web && npm run build",
+    "beforeBuildCommand": "cd ../../../apps/web && npm run build && npm run export",
     "frontendDist": "../../web/out"
   },
   "app": {
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
     "windows": [
       {
         "label": "main",
@@ -22,7 +26,9 @@
         "fullscreen": false,
         "decorations": true,
         "transparent": false,
-        "center": true
+        "center": true,
+        "visible": true,
+        "skipTaskbar": false
       }
     ],
     "security": {
