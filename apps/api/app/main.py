@@ -11,6 +11,7 @@ from app.agents.orchestrator_agent import OrchestratorAgent
 from app.agents.presentation import PresentationAgent
 from app.agents.registry import get_registry
 from app.agents.research_agent import ResearchAgent
+from app.core.config import settings
 from app.agents.robot_agent import RobotAgent
 from app.agents.routine_agent import RoutineAgent
 from app.agents.task_classifier import TaskClassifierAgent
@@ -51,9 +52,12 @@ app = FastAPI(
     description="Local-first AI productivity command center",
 )
 
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
