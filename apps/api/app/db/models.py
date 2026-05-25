@@ -107,6 +107,19 @@ class Integration(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class IoTDevice(Base):
+    __tablename__ = "iot_devices"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    device_type: Mapped[str] = mapped_column(String(64), nullable=False)  # irobot, roborock
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    credentials: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+    status: Mapped[str] = mapped_column(String(32), default="unknown")
+    last_state: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AppSettings(Base):
     __tablename__ = "app_settings"
     key: Mapped[str] = mapped_column(String(255), primary_key=True)

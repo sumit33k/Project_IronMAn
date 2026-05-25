@@ -5,6 +5,20 @@ public/graph.json
 .DS_Store
 tasks.db
 
+# Python
 __pycache__/
 *.pyc
+*.pyo
 *.db
+.venv/
+*.egg-info/
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+
+# Misc
+*.tsbuildinfo
+.env
+apps/api/app/db/__pycache__/
