@@ -23,6 +23,7 @@ DEFAULT_SETTINGS = {
     "voice_enabled": False,
     "tts_enabled": False,
     "user_name": "",
+    "display_name": "Sumit",
     "theme": "dark",
     "approval_policy": "always_for_risky",
     "cloud_provider_enabled": False,

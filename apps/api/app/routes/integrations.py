@@ -34,6 +34,62 @@ def list_integrations(db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/calendar/events")
+def get_calendar_events(db: Session = Depends(get_db)):
+    from datetime import date, timedelta
+    cal = db.query(Integration).filter_by(integration_type="gcalendar").first()
+    connected = bool(cal and cal.status == "active")
+    today = date.today().isoformat()
+    week_end = (date.today() + timedelta(days=7)).isoformat()
+    today_events = db.query(Task).filter(
+        Task.source == "calendar", Task.due_date == today
+    ).order_by(Task.created_at).all()
+    upcoming_raw = db.query(Task).filter(
+        Task.source == "calendar", Task.due_date > today, Task.due_date <= week_end
+    ).order_by(Task.due_date, Task.created_at).all()
+
+    def ev_out(t: Task) -> dict:
+        return {
+            "id": t.id,
+            "title": t.title.replace("Meeting: ", ""),
+            "due_date": t.due_date,
+            "description": t.description or "",
+            "category": t.category or "meeting",
+        }
+
+    by_date: dict = {}
+    for t in upcoming_raw:
+        d = t.due_date or ""
+        by_date.setdefault(d, []).append(ev_out(t))
+    upcoming = [{"date": d, "events": evts} for d, evts in sorted(by_date.items())]
+    return {"connected": connected, "today": [ev_out(t) for t in today_events], "upcoming": upcoming}
+
+
+@router.get("/gmail/inbox")
+def get_gmail_inbox(db: Session = Depends(get_db)):
+    gmail = db.query(Integration).filter_by(integration_type="gmail").first()
+    connected = bool(gmail and gmail.status == "active")
+    email_tasks = db.query(Task).filter(
+        Task.source == "email", Task.status.in_(["inbox", "todo"])
+    ).order_by(Task.created_at.desc()).limit(20).all()
+
+    def item_out(t: Task) -> dict:
+        from_str = t.description or ""
+        if from_str.startswith("From: "):
+            from_str = from_str[6:]
+        return {
+            "id": t.id,
+            "from": from_str,
+            "subject": t.title.replace("Email: ", ""),
+            "preview": t.context_summary or t.description or "",
+            "received_at": t.created_at.isoformat() if t.created_at else "",
+            "status": t.status,
+            "priority": t.priority,
+        }
+
+    return {"connected": connected, "items": [item_out(t) for t in email_tasks], "count": len(email_tasks)}
+
+
 @router.get("/google/auth")
 def google_auth_url(scope: str = "gmail"):
     import urllib.parse
