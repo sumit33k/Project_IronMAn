@@ -192,7 +192,7 @@ export interface Briefing {
 export interface VoiceHistoryRecord {
   id: string;
   text: string;
-  routing_result: string;
+  routing_result: string | Record<string, unknown>;
   created_at: string;
 }
 

@@ -102,7 +102,10 @@ export default function VoicePage() {
     setVoiceState('idle');
   };
 
-  const parseIntent = (routingResult: string): string => {
+  const parseIntent = (routingResult: string | Record<string, unknown>): string => {
+    if (typeof routingResult === 'object' && routingResult !== null) {
+      return String(routingResult.intent ?? 'unknown');
+    }
     try {
       const parsed = JSON.parse(routingResult);
       return parsed.intent ?? routingResult;
