@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.ironman.jarvis",
   "build": {
-    "beforeDevCommand": "cd ../../../apps/web && npm run dev",
+    "beforeDevCommand": "",
     "devUrl": "http://localhost:3000",
-    "beforeBuildCommand": "cd ../../../apps/web && npm run build && npm run export",
-    "frontendDist": "../../web/out"
+    "beforeBuildCommand": "",
+    "frontendDist": "http://localhost:3000"
   },
   "app": {
     "trayIcon": {
