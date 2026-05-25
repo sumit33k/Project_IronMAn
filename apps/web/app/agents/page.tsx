@@ -70,10 +70,10 @@ export default function AgentsPage() {
               {agent.description}
             </p>
 
-            {agent.requires_approval_for.length > 0 && (
+            {(agent as unknown as { requires_approval_for?: string[] }).requires_approval_for?.length && (
               <div className="flex items-start gap-1.5 mb-3 text-[10px] text-amber-400/80 bg-amber-950/30 rounded-lg px-2 py-1.5">
                 <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                <span>Requires approval for: {agent.requires_approval_for.join(', ')}</span>
+                <span>Requires approval for: {(agent as unknown as { requires_approval_for: string[] }).requires_approval_for.join(', ')}</span>
               </div>
             )}
 

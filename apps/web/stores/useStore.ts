@@ -11,6 +11,7 @@ interface JarvisStore {
   commandResult: CommandResult | null;
   isCommandPending: boolean;
   sidebarCollapsed: boolean;
+  jarvisOpen: boolean;
 
   loadTasks: () => Promise<void>;
   loadAgents: () => Promise<void>;
@@ -21,6 +22,7 @@ interface JarvisStore {
   createTask: (data: { title: string; priority?: string; category?: string }) => Promise<void>;
   routeCommand: (input: string) => Promise<CommandResult>;
   setSidebarCollapsed: (v: boolean) => void;
+  setJarvisOpen: (v: boolean) => void;
 }
 
 export const useStore = create<JarvisStore>((set, get) => ({
@@ -33,6 +35,7 @@ export const useStore = create<JarvisStore>((set, get) => ({
   commandResult: null,
   isCommandPending: false,
   sidebarCollapsed: false,
+  jarvisOpen: false,
 
   loadTasks: async () => {
     const [tasks, todayTasks, overdueTasks] = await Promise.all([
@@ -89,4 +92,5 @@ export const useStore = create<JarvisStore>((set, get) => ({
   },
 
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+  setJarvisOpen: (v) => set({ jarvisOpen: v }),
 }));

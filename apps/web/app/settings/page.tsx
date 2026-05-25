@@ -168,7 +168,7 @@ export default function SettingsPage() {
           </p>
 
           {/* Warning banner — shown when cloud_provider_enabled is true */}
-          {settings.cloud_provider_enabled && (
+          {!!settings.cloud_provider_enabled && (
             <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/40 mb-4">
               <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-amber-300">
@@ -195,7 +195,7 @@ export default function SettingsPage() {
             </label>
 
             {/* Provider select — shown when enabled */}
-            {settings.cloud_provider_enabled && (
+            {!!settings.cloud_provider_enabled && (
               <>
                 <label className="block">
                   <span className="text-xs text-slate-400 mb-1 block">Provider</span>

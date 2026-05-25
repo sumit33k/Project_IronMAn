@@ -5,9 +5,10 @@ import {
   LayoutDashboard, Clock, CheckSquare, FolderOpen, Calendar, Mail,
   RefreshCw, Bot, FileText, StickyNote, RotateCcw, Target, Users,
   BarChart2, Settings, Plus, CalendarPlus, Send, FileEdit, Mic,
-  Upload, Camera, Zap, Inbox, Link2, Moon, Crosshair, Kanban,
+  Upload, Camera, Zap, Inbox, Link2, Moon, Crosshair, Kanban, HelpCircle,
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import { useStore } from '@/stores/useStore';
 
 const NAV = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -46,6 +47,7 @@ const QUICK_ACTIONS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { setJarvisOpen } = useStore();
   return (
     <aside className="w-60 flex-shrink-0 flex flex-col h-screen bg-[#0f1117] border-r border-[#1e2847] overflow-y-auto">
       {/* Logo */}
@@ -127,13 +129,31 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Settings */}
-      <div className="p-4 border-t border-[#1e2847]">
+      {/* Jarvis Voice Button */}
+      <div className="px-4 py-3 border-t border-[#1e2847]">
+        <button
+          onClick={() => setJarvisOpen(true)}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600/20 border border-indigo-600/40 text-indigo-300 hover:bg-indigo-600/30 hover:border-indigo-500/60 transition-all group"
+        >
+          <Mic className="w-4 h-4 group-hover:scale-110 transition-transform" />
+          <span className="text-xs font-semibold tracking-wide">Ask Jarvis</span>
+          <span className="ml-auto text-[10px] text-indigo-500 border border-indigo-800 rounded px-1">⌥J</span>
+        </button>
+      </div>
+
+      {/* Settings + Help */}
+      <div className="p-4 border-t border-[#1e2847] flex items-center justify-between">
         <Link
           href="/settings"
           className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-all"
         >
           <Settings className="w-4 h-4" /> Settings
+        </Link>
+        <Link
+          href="/help"
+          className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-400 transition-all"
+        >
+          <HelpCircle className="w-3.5 h-3.5" /> Help
         </Link>
       </div>
     </aside>

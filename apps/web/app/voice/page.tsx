@@ -186,7 +186,7 @@ export default function VoicePage() {
             </span>
           </div>
           <p className="text-sm text-slate-200">{String(result.user_visible_summary)}</p>
-          {result.requires_confirmation && (
+          {!!result.requires_confirmation && (
             <div className="mt-3 flex gap-2 items-center">
               {confirmed ? (
                 <p className="text-xs text-emerald-400 flex items-center gap-1">
