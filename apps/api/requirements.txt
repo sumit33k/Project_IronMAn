@@ -8,3 +8,6 @@ pydantic-settings>=2.0
 alembic==1.13.1
 python-multipart==0.0.6
 python-dotenv==1.0.0
+# Robot integrations (optional — install for hardware support)
+# python-miio>=0.5.12     # Roborock: pip install python-miio
+# irobotpy>=1.0           # iRobot Roomba: pip install irobotpy

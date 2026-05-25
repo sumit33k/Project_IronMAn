@@ -17,6 +17,7 @@ const NAV = [
   { label: 'Tasks', href: '/tasks', icon: CheckSquare },
   { label: 'Focus Mode', href: '/focus', icon: Crosshair },
   { label: 'Daily Review', href: '/review', icon: Moon },
+  { label: 'Robots', href: '/robots', icon: Zap },
   { label: 'Agents', href: '/agents', icon: Bot },
   { label: 'Briefing', href: '/briefing', icon: FileText },
   { label: 'Projects', href: '/projects', icon: FolderOpen },

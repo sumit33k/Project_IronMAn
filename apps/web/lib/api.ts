@@ -60,6 +60,15 @@ export const api = {
   // End-of-Day Review
   getEodReview: () => apiFetch<EodReview>('/eod/review'),
   generateEodReview: (notes?: string) => apiFetch<EodReview>('/eod/review', { method: 'POST', body: JSON.stringify({ notes: notes || '' }) }),
+
+  // Robots / IoT
+  getRobots: () => apiFetch<Robot[]>('/robots'),
+  addRobot: (data: AddRobotInput) => apiFetch<Robot>('/robots', { method: 'POST', body: JSON.stringify(data) }),
+  deleteRobot: (id: string) => apiFetch<void>(`/robots/${id}`, { method: 'DELETE' }),
+  getRobotStatus: (id: string) => apiFetch<{ live: RobotLiveStatus } & Robot>(`/robots/${id}/status`),
+  sendRobotCommand: (id: string, command: string) => apiFetch<{ robot: Robot; result: Record<string, unknown> }>(`/robots/${id}/${command}`, { method: 'POST' }),
+  scanNetwork: () => apiFetch<{ found: { ip: string; port: number; brand: string }[]; count: number }>('/robots/scan/network', { method: 'POST' }),
+  getWatchBrief: () => apiFetch<WatchBrief>('/watch/brief'),
 };
 
 // Types
@@ -158,6 +167,44 @@ export interface Integration {
   name: string;
   status: string;
   last_sync_at: string | null;
+}
+
+export interface Robot {
+  id: string;
+  device_type: 'irobot' | 'roborock';
+  name: string;
+  ip_address: string | null;
+  status: string;
+  last_state: Record<string, unknown>;
+  last_seen_at: string | null;
+  configured: boolean;
+}
+
+export interface AddRobotInput {
+  device_type: 'irobot' | 'roborock';
+  name: string;
+  ip_address: string;
+  token?: string;
+  blid?: string;
+  password?: string;
+}
+
+export interface RobotLiveStatus {
+  state?: string;
+  battery?: number;
+  error?: string;
+  clean_time_seconds?: number;
+  clean_area_m2?: number;
+  bin_full?: boolean;
+  fan_speed?: string;
+  timestamp?: string;
+}
+
+export interface WatchBrief {
+  spoken_summary: string;
+  urgent_count: number;
+  today_count: number;
+  robots: { name: string; status: string }[];
 }
 
 export interface EodReview {
