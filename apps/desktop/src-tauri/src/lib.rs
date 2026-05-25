@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, Runtime,
+    Manager,
 };
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -56,7 +56,7 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&tray_menu)
-                .menu_on_left_click(false)
+                .show_menu_on_left_click(false)
                 .tooltip("Jarvis Command Center")
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
