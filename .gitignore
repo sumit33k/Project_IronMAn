@@ -22,3 +22,9 @@ next-env.d.ts
 *.tsbuildinfo
 .env
 apps/api/app/db/__pycache__/
+
+# Rust / Tauri build artifacts
+apps/desktop/src-tauri/target/
+
+# Claude Code session data
+.claude/

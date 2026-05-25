@@ -4,10 +4,18 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
-from app.db.models import Command
+from app.db.models import AppSettings, Command
 from app.services.command_router import CommandRouter
 
 router = APIRouter(prefix="/voice", tags=["voice"])
+
+VOICE_DEFAULTS = {
+    "wake_phrase": "hey jarvis",
+    "push_to_talk_enabled": True,
+    "wake_word_enabled": False,
+    "tts_enabled": False,
+    "stt_provider": "browser",
+}
 
 
 def get_db():
@@ -31,21 +39,37 @@ class VoiceCommand(BaseModel):
     auto_execute: bool = False
 
 
-_voice_settings = VoiceSettings()
+def _load_voice_settings(db: Session) -> dict:
+    result = dict(VOICE_DEFAULTS)
+    for key in VOICE_DEFAULTS:
+        row = db.get(AppSettings, f"voice_{key}")
+        if row:
+            try:
+                result[key] = json.loads(row.value)
+            except Exception:
+                result[key] = row.value
+    return result
 
 
 @router.get("/settings")
-def get_voice_settings():
-    return _voice_settings.model_dump()
+def get_voice_settings(db: Session = Depends(get_db)):
+    return _load_voice_settings(db)
 
 
 @router.patch("/settings")
-def update_voice_settings(payload: dict):
-    global _voice_settings
-    data = _voice_settings.model_dump()
-    data.update(payload)
-    _voice_settings = VoiceSettings(**data)
-    return _voice_settings.model_dump()
+def update_voice_settings(payload: dict, db: Session = Depends(get_db)):
+    current = _load_voice_settings(db)
+    current.update(payload)
+    validated = VoiceSettings(**current)
+    for key, value in validated.model_dump().items():
+        db_key = f"voice_{key}"
+        existing = db.get(AppSettings, db_key)
+        if existing:
+            existing.value = json.dumps(value)
+        else:
+            db.add(AppSettings(key=db_key, value=json.dumps(value)))
+    db.commit()
+    return validated.model_dump()
 
 
 @router.post("/transcribe")
@@ -54,7 +78,7 @@ async def transcribe_audio():
         "transcript": "",
         "confidence": 0.0,
         "provider": "browser",
-        "note": "Use browser Web Speech API for transcription in MVP"
+        "note": "Use browser Web Speech API for transcription",
     }
 
 

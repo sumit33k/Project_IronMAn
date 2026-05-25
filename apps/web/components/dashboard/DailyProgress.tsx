@@ -4,21 +4,26 @@ import { useStore } from '@/stores/useStore';
 import { Zap } from 'lucide-react';
 import Link from 'next/link';
 
-const METRICS = [
-  { label: 'Tasks Completed', value: '8/12',      icon: '✓' },
-  { label: 'Focus Time',      value: '3.2 / 4 hrs', icon: '⏱' },
-  { label: 'Emails Cleared',  value: '15/28',     icon: '✉' },
-  { label: 'Follow-ups Done', value: '3/7',       icon: '↩' },
-];
-
 export default function DailyProgress() {
-  const { tasks } = useStore();
+  const { tasks, taskStats } = useStore();
   const completed = tasks.filter((t) => t.status === 'completed').length;
   const total = Math.max(tasks.length, 1);
   const pct = Math.min(Math.round((completed / total) * 100), 100);
 
   const circumference = 2 * Math.PI * 26;
   const dash = (pct / 100) * circumference;
+
+  const metrics = taskStats ? [
+    { label: 'Tasks Completed', value: `${taskStats.completed_today}/${taskStats.active_today + taskStats.completed_today}`, icon: '✓' },
+    { label: 'Emails Cleared', value: taskStats.total_emails > 0 ? `${taskStats.emails_cleared}/${taskStats.total_emails}` : '—', icon: '✉' },
+    { label: 'Follow-ups Done', value: taskStats.total_follow_ups > 0 ? `${taskStats.follow_ups_done}/${taskStats.total_follow_ups}` : '—', icon: '↩' },
+    { label: 'Waiting Tasks', value: String(taskStats.waiting_count), icon: '⏳' },
+  ] : [
+    { label: 'Tasks Completed', value: `${completed}/${total}`, icon: '✓' },
+    { label: 'Emails Cleared', value: '—', icon: '✉' },
+    { label: 'Follow-ups Done', value: '—', icon: '↩' },
+    { label: 'Waiting Tasks', value: '—', icon: '⏳' },
+  ];
 
   return (
     <div className="glass-card p-4">
@@ -57,7 +62,7 @@ export default function DailyProgress() {
       </div>
 
       <div className="space-y-2">
-        {METRICS.map((m) => (
+        {metrics.map((m) => (
           <div key={m.label} className="flex items-center justify-between text-xs">
             <span className="text-slate-400 flex items-center gap-1.5">
               <span className="text-slate-600 w-3">{m.icon}</span>
@@ -68,9 +73,11 @@ export default function DailyProgress() {
         ))}
       </div>
 
-      <p className="mt-3 text-[10px] text-yellow-500/70 italic text-center">
-        ⚡ Discipline today, freedom tomorrow.
-      </p>
+      {completed > 0 && (
+        <p className="mt-3 text-[10px] text-yellow-500/70 italic text-center">
+          ⚡ {completed} task{completed !== 1 ? 's' : ''} done today. Keep it up!
+        </p>
+      )}
     </div>
   );
 }

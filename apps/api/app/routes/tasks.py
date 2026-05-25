@@ -68,6 +68,62 @@ def overdue_tasks(db: Session = Depends(get_db)):
     return [task_to_out(t) for t in tasks]
 
 
+@router.get("/overdue/count")
+def overdue_count(db: Session = Depends(get_db)):
+    today = date.today().isoformat()
+    count = db.query(Task).filter(
+        Task.due_date < today,
+        Task.status.notin_(["completed", "archived", "deferred"])
+    ).count()
+    return {"count": count}
+
+
+@router.get("/stats/today")
+def today_stats(db: Session = Depends(get_db)):
+    today = date.today().isoformat()
+    completed_today = db.query(Task).filter(
+        Task.status == "completed",
+        Task.completed_at.isnot(None),
+        Task.completed_at >= f"{today}T00:00:00"
+    ).count()
+    active_today = db.query(Task).filter(
+        Task.status.in_(["today", "in_progress"])
+    ).count()
+    waiting_count = db.query(Task).filter(Task.status == "waiting").count()
+    overdue_val = db.query(Task).filter(
+        Task.due_date < today,
+        Task.status.notin_(["completed", "archived", "deferred"])
+    ).count()
+    total_active = db.query(Task).filter(
+        Task.status.notin_(["completed", "archived"])
+    ).count()
+    emails_cleared = db.query(Task).filter(
+        Task.source == "email",
+        Task.status == "completed",
+        Task.completed_at.isnot(None),
+        Task.completed_at >= f"{today}T00:00:00"
+    ).count()
+    total_emails = db.query(Task).filter(Task.source == "email").count()
+    follow_ups_done = db.query(Task).filter(
+        Task.status == "completed",
+        Task.completed_at.isnot(None),
+        Task.completed_at >= f"{today}T00:00:00",
+        Task.category == "follow_up"
+    ).count()
+    total_follow_ups = db.query(Task).filter(Task.category == "follow_up").count()
+    return {
+        "completed_today": completed_today,
+        "active_today": active_today,
+        "total_active": total_active,
+        "waiting_count": waiting_count,
+        "overdue_count": overdue_val,
+        "emails_cleared": emails_cleared,
+        "total_emails": total_emails,
+        "follow_ups_done": follow_ups_done,
+        "total_follow_ups": total_follow_ups,
+    }
+
+
 @router.get("/{task_id}", response_model=dict)
 def get_task(task_id: str, db: Session = Depends(get_db)):
     task = db.get(Task, task_id)

@@ -69,6 +69,21 @@ export const api = {
   sendRobotCommand: (id: string, command: string) => apiFetch<{ robot: Robot; result: Record<string, unknown> }>(`/robots/${id}/${command}`, { method: 'POST' }),
   scanNetwork: () => apiFetch<{ found: { ip: string; port: number; brand: string }[]; count: number }>('/robots/scan/network', { method: 'POST' }),
   getWatchBrief: () => apiFetch<WatchBrief>('/watch/brief'),
+
+  // Stats & counts
+  getOverdueCount: () => apiFetch<{ count: number }>('/tasks/overdue/count'),
+  getTodayStats: () => apiFetch<TaskStats>('/tasks/stats/today'),
+
+  // AI
+  getAISuggestions: () => apiFetch<{ suggestions: AISuggestion[] }>('/ai/suggestions'),
+
+  // Integrations — read endpoints
+  getCalendarEvents: () => apiFetch<CalendarEventsResponse>('/integrations/calendar/events'),
+  getGmailInbox: () => apiFetch<GmailInboxResponse>('/integrations/gmail/inbox'),
+
+  // Voice settings
+  getVoiceSettings: () => apiFetch<VoiceSettingsData>('/voice/settings'),
+  updateVoiceSettings: (data: Partial<VoiceSettingsData>) => apiFetch<VoiceSettingsData>('/voice/settings', { method: 'PATCH', body: JSON.stringify(data) }),
 };
 
 // Types
@@ -241,4 +256,61 @@ export interface EodReview {
   summary: string;
   momentum_score: number;
   recommended_actions: string[];
+}
+
+export interface TaskStats {
+  completed_today: number;
+  active_today: number;
+  total_active: number;
+  waiting_count: number;
+  overdue_count: number;
+  emails_cleared: number;
+  total_emails: number;
+  follow_ups_done: number;
+  total_follow_ups: number;
+}
+
+export interface AISuggestion {
+  text: string;
+  action: string;
+  type: 'warning' | 'tip' | 'info';
+  priority: 'high' | 'medium' | 'low';
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  due_date: string;
+  description: string;
+  category: string;
+}
+
+export interface CalendarEventsResponse {
+  connected: boolean;
+  today: CalendarEvent[];
+  upcoming: { date: string; events: CalendarEvent[] }[];
+}
+
+export interface GmailInboxItem {
+  id: string;
+  from: string;
+  subject: string;
+  preview: string;
+  received_at: string;
+  status: string;
+  priority: string;
+}
+
+export interface GmailInboxResponse {
+  connected: boolean;
+  items: GmailInboxItem[];
+  count: number;
+}
+
+export interface VoiceSettingsData {
+  wake_phrase: string;
+  push_to_talk_enabled: boolean;
+  wake_word_enabled: boolean;
+  tts_enabled: boolean;
+  stt_provider: string;
 }

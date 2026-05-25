@@ -17,6 +17,7 @@ from app.agents.task_classifier import TaskClassifierAgent
 from app.db.database import Base, SessionLocal, engine
 from app.routes import agents, ai, briefings, commands, settings, tasks, voice
 from app.routes import eod, integrations as integrations_router, robots as robots_router
+from app.routes import presentations as presentations_router
 from app.seed import seed_integrations
 
 Base.metadata.create_all(bind=engine)
@@ -52,7 +53,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,6 +69,7 @@ app.include_router(settings.router)
 app.include_router(eod.router)
 app.include_router(integrations_router.router)
 app.include_router(robots_router.router)
+app.include_router(presentations_router.router)
 
 
 @app.get("/health")

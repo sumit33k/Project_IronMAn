@@ -27,7 +27,12 @@ const fade = (delay: number) => ({
 export default function DashboardPage() {
   const router = useRouter();
   const [setupChecked, setSetupChecked] = useState(false);
-  const { loadTasks, loadAgents, loadBriefing, checkAI, setJarvisOpen } = useStore();
+  const {
+    loadTasks, loadAgents, loadBriefing, checkAI, setJarvisOpen,
+    displayName, overdueCount,
+    loadDisplayName, loadOverdueCount, loadTaskStats,
+    loadCalendarEvents, loadInboxData, loadAISuggestions,
+  } = useStore();
 
   useEffect(() => {
     api.getSettings()
@@ -37,8 +42,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!setupChecked) return;
-    void Promise.allSettled([loadTasks(), loadAgents(), loadBriefing(), checkAI()]);
-  }, [setupChecked, loadTasks, loadAgents, loadBriefing, checkAI]);
+    void Promise.allSettled([
+      loadTasks(), loadAgents(), loadBriefing(), checkAI(),
+      loadDisplayName(), loadOverdueCount(), loadTaskStats(),
+      loadCalendarEvents(), loadInboxData(), loadAISuggestions(),
+    ]);
+  }, [setupChecked, loadTasks, loadAgents, loadBriefing, checkAI,
+      loadDisplayName, loadOverdueCount, loadTaskStats,
+      loadCalendarEvents, loadInboxData, loadAISuggestions]);
 
   if (!setupChecked) return null;
 
@@ -52,7 +63,7 @@ export default function DashboardPage() {
       <header className="flex items-center gap-3 px-5 py-3 border-b border-[#1e2847] bg-[#0d0f14] sticky top-0 z-30">
         {/* Greeting */}
         <div className="flex-shrink-0 min-w-0">
-          <h1 className="text-[15px] font-bold text-white leading-tight">{greeting}, Sumit! 👋</h1>
+          <h1 className="text-[15px] font-bold text-white leading-tight">{greeting}, {displayName}! 👋</h1>
           <p className="text-[10px] text-slate-500 leading-tight">Here&apos;s your plan for today.</p>
         </div>
 
@@ -94,7 +105,11 @@ export default function DashboardPage() {
           {/* Bell */}
           <button className="relative w-8 h-8 rounded-lg bg-[#131720] border border-[#1e2847] flex items-center justify-center text-slate-400 hover:text-white transition-colors">
             <Bell className="w-4 h-4" />
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[9px] text-white flex items-center justify-center font-bold leading-none">3</span>
+            {overdueCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[9px] text-white flex items-center justify-center font-bold leading-none">
+                {overdueCount > 9 ? '9+' : overdueCount}
+              </span>
+            )}
           </button>
 
           {/* Profile */}
@@ -103,7 +118,7 @@ export default function DashboardPage() {
               <User className="w-3.5 h-3.5 text-white" />
             </div>
             <div className="hidden sm:block text-left">
-              <p className="text-xs font-semibold text-white leading-tight">Sumit</p>
+              <p className="text-xs font-semibold text-white leading-tight">{displayName}</p>
               <p className="text-[10px] text-emerald-400 leading-tight flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
                 Focus Mode
