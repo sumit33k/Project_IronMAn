@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
-  ArrowLeft, CheckCircle2, Clock, ArrowDownRight, Bot, Mail, Presentation,
-  Phone, Archive, Trash2, Loader2, ChevronDown, X, AlertCircle,
+  ArrowLeft, CheckCircle2, Clock, ArrowDownRight, Bot, Mail,
+  Phone, Archive, Trash2, Loader2, X, AlertCircle,
 } from 'lucide-react';
 import { api, Task, Agent, AgentRun } from '@/lib/api';
 import { clsx } from 'clsx';
