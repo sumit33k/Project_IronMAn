@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Clock, CheckSquare, FolderOpen, Calendar, Mail,
   RefreshCw, Bot, FileText, StickyNote, RotateCcw, Target, Users,
@@ -9,6 +10,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '@/stores/useStore';
+import { api, Integration } from '@/lib/api';
 
 const NAV = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -23,8 +25,8 @@ const NAV = [
   { label: 'Briefing', href: '/briefing', icon: FileText },
   { label: 'Projects', href: '/projects', icon: FolderOpen },
   { label: 'Calendar', href: '/calendar', icon: Calendar },
-  { label: 'Emails', href: '/emails', icon: Mail, badge: 3 },
-  { label: 'Follow-ups', href: '/followups', icon: RefreshCw, badge: 7 },
+  { label: 'Emails', href: '/emails', icon: Mail },
+  { label: 'Follow-ups', href: '/followups', icon: RefreshCw },
   { label: 'Documents', href: '/documents', icon: FileText },
   { label: 'Notes', href: '/notes', icon: StickyNote },
   { label: 'Routines', href: '/routines', icon: RotateCcw },
@@ -47,7 +49,24 @@ const QUICK_ACTIONS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { setJarvisOpen } = useStore();
+  const { setJarvisOpen, displayName, inboxData, tasks } = useStore();
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
+
+  useEffect(() => {
+    api.getIntegrations().then(setIntegrations).catch(() => {});
+  }, []);
+
+  const emailBadge = inboxData?.count ?? 0;
+  const followUpBadge = tasks.filter((t) => t.status === 'waiting').length;
+
+  const getBadge = (href: string): number | null => {
+    if (href === '/emails') return emailBadge > 0 ? emailBadge : null;
+    if (href === '/followups') return followUpBadge > 0 ? followUpBadge : null;
+    return null;
+  };
+
+  const connectedIntegrations = integrations.filter((i) => i.status === 'active');
+
   return (
     <aside className="w-60 flex-shrink-0 flex flex-col h-screen bg-[#0f1117] border-r border-[#1e2847] overflow-y-auto">
       {/* Logo */}
@@ -57,7 +76,7 @@ export default function Sidebar() {
             <Zap className="w-4 h-4 text-white" />
           </div>
           <div>
-            <p className="text-xs font-bold text-white tracking-wider uppercase">Sumit's</p>
+            <p className="text-xs font-bold text-white tracking-wider uppercase">{displayName}&apos;s</p>
             <p className="text-[10px] text-slate-400 tracking-widest uppercase">Command Center</p>
           </div>
         </div>
@@ -65,7 +84,8 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-2 py-3 space-y-0.5">
-        {NAV.map(({ label, href, icon: Icon, badge }) => {
+        {NAV.map(({ label, href, icon: Icon }) => {
+          const badge = getBadge(href);
           const active = pathname === href || (href !== '/' && pathname.startsWith(href));
           return (
             <Link
@@ -82,7 +102,7 @@ export default function Sidebar() {
                 <Icon className="w-4 h-4" />
                 {label}
               </span>
-              {badge && (
+              {badge !== null && (
                 <span
                   className={clsx(
                     'text-xs px-1.5 py-0.5 rounded-full font-medium',
@@ -103,12 +123,18 @@ export default function Sidebar() {
       <div className="px-4 py-3 border-t border-[#1e2847]">
         <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Integrations</p>
         <div className="flex items-center gap-2 flex-wrap">
-          {['Gmail', 'GCal', 'WA', 'Slack'].map((i) => (
-            <span key={i} className="text-[10px] px-2 py-1 rounded bg-[#1e2847] text-slate-400">
-              {i}
-            </span>
-          ))}
-          <button className="text-[10px] px-2 py-1 rounded bg-[#1e2847] text-indigo-400">+</button>
+          {connectedIntegrations.length > 0 ? (
+            connectedIntegrations.map((i) => (
+              <span key={i.id} className="text-[10px] px-2 py-1 rounded bg-[#1e2847] text-slate-400">
+                {i.name || i.integration_type}
+              </span>
+            ))
+          ) : (
+            <Link href="/integrations" className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors">
+              Connect →
+            </Link>
+          )}
+          <Link href="/integrations" className="text-[10px] px-2 py-1 rounded bg-[#1e2847] text-indigo-400">+</Link>
         </div>
       </div>
 
