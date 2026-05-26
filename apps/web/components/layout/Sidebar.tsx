@@ -51,8 +51,10 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { setJarvisOpen, displayName, inboxData, tasks } = useStore();
   const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     api.getIntegrations().then(setIntegrations).catch(() => {});
   }, []);
 
@@ -60,6 +62,7 @@ export default function Sidebar() {
   const followUpBadge = tasks.filter((t) => t.status === 'waiting').length;
 
   const getBadge = (href: string): number | null => {
+    if (!mounted) return null;
     if (href === '/emails') return emailBadge > 0 ? emailBadge : null;
     if (href === '/followups') return followUpBadge > 0 ? followUpBadge : null;
     return null;

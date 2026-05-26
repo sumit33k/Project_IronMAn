@@ -29,7 +29,6 @@ export default function IntegrationsPage() {
   const [acting, setActing] = useState<Record<string, 'connect' | 'sync' | 'disconnect'>>({});
   const [toast, setToast] = useState<Toast | null>(null);
   const [polling, setPolling] = useState(false);
-  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
 
   const showToast = (message: string, kind: 'success' | 'error') => {
     setToast({ message, kind });
@@ -49,7 +48,7 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     void load();
-    if (searchParams?.get('status') === 'connected') {
+    if (new URLSearchParams(window.location.search).get('status') === 'connected') {
       showToast('Google connected successfully!', 'success');
     }
   }, [load]);

@@ -102,20 +102,6 @@ export default function VoicePage() {
     setVoiceState('idle');
   };
 
-<<<<<<< Updated upstream
-  const parseIntent = (routingResult: unknown): string => {
-    if (routingResult === null || routingResult === undefined) return 'unknown';
-    if (typeof routingResult === 'object') {
-      const obj = routingResult as Record<string, unknown>;
-      return String(obj.intent ?? 'unknown');
-    }
-    try {
-      const parsed: unknown = JSON.parse(String(routingResult));
-      if (parsed !== null && typeof parsed === 'object') {
-        return String((parsed as Record<string, unknown>).intent ?? 'unknown');
-      }
-      return String(parsed ?? 'unknown');
-=======
   const textFromUnknown = (value: unknown, fallback = 'unknown'): string => {
     if (typeof value === 'string') return value;
     if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -126,17 +112,19 @@ export default function VoicePage() {
     return fallback;
   };
 
-  const parseIntent = (routingResult: string | Record<string, unknown>): string => {
+  const parseIntent = (routingResult: unknown): string => {
     if (typeof routingResult === 'object' && routingResult !== null) {
-      return textFromUnknown(routingResult.intent ?? routingResult);
+      return textFromUnknown((routingResult as Record<string, unknown>).intent ?? routingResult);
     }
-    try {
-      const parsed = JSON.parse(routingResult);
-      return textFromUnknown(parsed.intent ?? parsed, routingResult);
->>>>>>> Stashed changes
-    } catch {
-      return String(routingResult);
+    if (typeof routingResult === 'string') {
+      try {
+        const parsed: unknown = JSON.parse(routingResult);
+        return textFromUnknown((parsed as Record<string, unknown>).intent ?? parsed, routingResult);
+      } catch {
+        return routingResult;
+      }
     }
+    return String(routingResult ?? 'unknown');
   };
 
   const formatTimestamp = (iso: string): string => {
