@@ -11,6 +11,15 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const NUM_BARS = 28;
 
+function commandSummary(value: unknown, fallback = 'Command received.'): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return fallback;
+
+  const record = value as Record<string, unknown>;
+  return commandSummary(record.user_visible_summary ?? record.intent, fallback);
+}
+
 export default function JarvisOverlay() {
   const { jarvisOpen, setJarvisOpen } = useStore();
   const [state, setState] = useState<JarvisState>('boot');
@@ -169,8 +178,40 @@ export default function JarvisOverlay() {
       setTranscript(t);
       finalRef.current = t;
     };
+<<<<<<< Updated upstream
     rec.onend = () => sendCommand(finalRef.current);
     rec.onerror = () => { setResultText('Microphone access denied or unavailable.'); setState('error'); };
+=======
+
+    rec.onend = async () => {
+      if (!finalRef.current.trim()) {
+        setState('boot');
+        setTranscript('');
+        return;
+      }
+      setState('processing');
+      try {
+        const res = await fetch(`${API}/commands/route`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw_input: finalRef.current, input_mode: 'voice' }),
+        });
+        const data = await res.json();
+        setResultText(commandSummary(data));
+        setState('done');
+      } catch {
+        setResultText('Backend offline — command not sent.');
+        setState('error');
+      }
+      autoCloseTimer.current = setTimeout(() => close(), 4000);
+    };
+
+    rec.onerror = () => {
+      setResultText('Microphone access denied or unavailable.');
+      setState('error');
+    };
+
+>>>>>>> Stashed changes
     rec.start();
   };
 

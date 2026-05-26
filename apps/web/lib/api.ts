@@ -9,6 +9,71 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function looksLikeCommandResult(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && (
+    'intent' in value ||
+    'user_visible_summary' in value ||
+    'requires_confirmation' in value
+  );
+}
+
+function unwrapCommandResult(raw: unknown): Record<string, unknown> {
+  if (!isRecord(raw)) return {};
+
+  let current = raw;
+  for (const key of ['result', 'data', 'routing_result', 'command']) {
+    const nested = current[key];
+    if (looksLikeCommandResult(nested)) current = nested;
+  }
+
+  if (looksLikeCommandResult(current.intent)) {
+    current = current.intent;
+  }
+
+  return current;
+}
+
+function displayText(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (!isRecord(value)) return fallback;
+
+  const command = unwrapCommandResult(value);
+  const summary = command.user_visible_summary;
+  if (typeof summary === 'string' && summary.trim()) return summary;
+
+  const intent = command.intent;
+  if (typeof intent === 'string' && intent.trim()) return intent.replaceAll('_', ' ');
+
+  return fallback;
+}
+
+function optionalText(value: unknown): string | undefined {
+  const text = displayText(value);
+  return text || undefined;
+}
+
+function normalizeCommandResult(raw: unknown): CommandResult {
+  const command = unwrapCommandResult(raw);
+  const confidence = Number(command.confidence);
+
+  return {
+    intent: displayText(command.intent, 'ask_general_question'),
+    confidence: Number.isFinite(confidence) ? confidence : 0,
+    target_agent: optionalText(command.target_agent),
+    task_id: optionalText(command.task_id),
+    requires_confirmation: command.requires_confirmation === true,
+    confirmation_message: optionalText(command.confirmation_message),
+    user_visible_summary: displayText(command.user_visible_summary, 'Command received.'),
+    command_id: optionalText(command.command_id),
+    parameters: isRecord(command.parameters) ? command.parameters : {},
+  };
+}
+
 export const api = {
   // Tasks
   getTasks: (status?: string) => apiFetch<Task[]>(`/tasks${status ? `?status=${status}` : ''}`),
@@ -30,7 +95,8 @@ export const api = {
 
   // Commands
   routeCommand: (input: string, mode = 'text') =>
-    apiFetch<CommandResult>('/commands/route', { method: 'POST', body: JSON.stringify({ raw_input: input, input_mode: mode }) }),
+    apiFetch<unknown>('/commands/route', { method: 'POST', body: JSON.stringify({ raw_input: input, input_mode: mode }) })
+      .then(normalizeCommandResult),
   getCommandHistory: () => apiFetch<CommandRecord[]>('/commands/history'),
 
   // Briefings
@@ -40,7 +106,8 @@ export const api = {
 
   // Voice
   processVoice: (transcript: string, autoExecute = false) =>
-    apiFetch<CommandResult>('/voice/process', { method: 'POST', body: JSON.stringify({ transcript, auto_execute: autoExecute }) }),
+    apiFetch<unknown>('/voice/process', { method: 'POST', body: JSON.stringify({ transcript, auto_execute: autoExecute }) })
+      .then(normalizeCommandResult),
   getVoiceHistory: () => apiFetch<VoiceHistoryRecord[]>('/voice/history'),
 
   // AI / Settings
@@ -161,6 +228,7 @@ export interface CommandResult {
   intent: string;
   confidence: number;
   target_agent?: string;
+  task_id?: string;
   requires_confirmation: boolean;
   confirmation_message?: string;
   user_visible_summary: string;

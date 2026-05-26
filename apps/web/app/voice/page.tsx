@@ -102,6 +102,7 @@ export default function VoicePage() {
     setVoiceState('idle');
   };
 
+<<<<<<< Updated upstream
   const parseIntent = (routingResult: unknown): string => {
     if (routingResult === null || routingResult === undefined) return 'unknown';
     if (typeof routingResult === 'object') {
@@ -114,6 +115,25 @@ export default function VoicePage() {
         return String((parsed as Record<string, unknown>).intent ?? 'unknown');
       }
       return String(parsed ?? 'unknown');
+=======
+  const textFromUnknown = (value: unknown, fallback = 'unknown'): string => {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      return textFromUnknown(record.intent ?? record.user_visible_summary, fallback);
+    }
+    return fallback;
+  };
+
+  const parseIntent = (routingResult: string | Record<string, unknown>): string => {
+    if (typeof routingResult === 'object' && routingResult !== null) {
+      return textFromUnknown(routingResult.intent ?? routingResult);
+    }
+    try {
+      const parsed = JSON.parse(routingResult);
+      return textFromUnknown(parsed.intent ?? parsed, routingResult);
+>>>>>>> Stashed changes
     } catch {
       return String(routingResult);
     }

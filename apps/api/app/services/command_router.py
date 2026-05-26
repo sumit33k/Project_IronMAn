@@ -23,7 +23,7 @@ class CommandRouter:
     def __init__(self):
         self.client = OllamaClient()
 
-    async def route(self, raw_input: str, context: dict = {}) -> dict:
+    async def route(self, raw_input: str, context=None) -> dict:
         prompt = f"""You are a command router for a Jarvis-style AI command center.
 
 Given this user command, classify the intent and produce JSON only.
@@ -53,9 +53,10 @@ Rules:
 
         try:
             result = await self.client.classify_json(prompt)
-            if not result or "intent" not in result:
+            if not result:
                 return self._fallback(raw_input)
 
+            result = self._normalize_result(result, raw_input)
             intent = result.get("intent", "ask_general_question")
             if intent in RISKY_INTENTS:
                 result["requires_confirmation"] = True
@@ -67,6 +68,89 @@ Rules:
             return result
         except OllamaUnavailableError:
             return self._rule_based(raw_input)
+
+    def _looks_like_result(self, value) -> bool:
+        return (
+            isinstance(value, dict)
+            and (
+                "intent" in value
+                or "user_visible_summary" in value
+                or "requires_confirmation" in value
+            )
+        )
+
+    def _unwrap_result(self, value) -> dict:
+        if not isinstance(value, dict):
+            return {}
+
+        result = value
+        for key in ("result", "data", "routing_result", "command"):
+            nested = result.get(key)
+            if self._looks_like_result(nested):
+                result = nested
+
+        intent = result.get("intent")
+        if self._looks_like_result(intent):
+            result = intent
+
+        return result
+
+    def _coerce_text(self, value, default=None):
+        if isinstance(value, str):
+            return value if value.strip() else default
+        if value is None:
+            return default
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        if isinstance(value, dict):
+            nested = self._unwrap_result(value)
+            summary = nested.get("user_visible_summary")
+            if isinstance(summary, str) and summary.strip():
+                return summary
+            intent = nested.get("intent")
+            if isinstance(intent, str) and intent.strip():
+                return intent
+        return default
+
+    def _coerce_confidence(self, value) -> float:
+        try:
+            confidence = float(value)
+        except (TypeError, ValueError):
+            return 0.5
+        return max(0.0, min(1.0, confidence))
+
+    def _coerce_bool(self, value, default=False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y"}
+        return bool(value)
+
+    def _normalize_result(self, value, raw_input: str) -> dict:
+        result = self._unwrap_result(value)
+        intent = self._coerce_text(result.get("intent"), "ask_general_question")
+        if intent not in SUPPORTED_INTENTS:
+            intent = "ask_general_question"
+
+        parameters = result.get("parameters")
+        if not isinstance(parameters, dict):
+            parameters = {"raw": raw_input}
+
+        return {
+            "intent": intent,
+            "confidence": self._coerce_confidence(result.get("confidence")),
+            "target_agent": self._coerce_text(result.get("target_agent")),
+            "task_id": self._coerce_text(result.get("task_id")),
+            "parameters": parameters,
+            "requires_confirmation": self._coerce_bool(result.get("requires_confirmation")),
+            "confirmation_message": self._coerce_text(result.get("confirmation_message")),
+            "user_visible_summary": self._coerce_text(
+                result.get("user_visible_summary"),
+                f"Processing: {raw_input}"
+            ),
+        }
 
     def _rule_based(self, raw_input: str) -> dict:
         lower = raw_input.lower()
