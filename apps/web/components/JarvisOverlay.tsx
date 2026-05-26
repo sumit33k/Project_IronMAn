@@ -178,10 +178,6 @@ export default function JarvisOverlay() {
       setTranscript(t);
       finalRef.current = t;
     };
-<<<<<<< Updated upstream
-    rec.onend = () => sendCommand(finalRef.current);
-    rec.onerror = () => { setResultText('Microphone access denied or unavailable.'); setState('error'); };
-=======
 
     rec.onend = async () => {
       if (!finalRef.current.trim()) {
@@ -211,7 +207,6 @@ export default function JarvisOverlay() {
       setState('error');
     };
 
->>>>>>> Stashed changes
     rec.start();
   };
 
