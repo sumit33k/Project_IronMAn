@@ -1,3 +1,4 @@
+'use client';
 import ComingSoon from '@/components/ui/ComingSoon';
 import { FolderOpen } from 'lucide-react';
 

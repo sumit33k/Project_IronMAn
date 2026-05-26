@@ -23,9 +23,9 @@ export default function CommandBar() {
     try {
       const r = await routeCommand(input.trim());
       setResult({
-        summary: r.user_visible_summary,
-        intent: r.intent,
-        requires_confirmation: r.requires_confirmation,
+        summary: typeof r.user_visible_summary === 'string' ? r.user_visible_summary : String(r.user_visible_summary ?? ''),
+        intent: typeof r.intent === 'string' ? r.intent : String(r.intent ?? 'unknown'),
+        requires_confirmation: !!r.requires_confirmation,
       });
       // Auto-execute safe actions
       if (!r.requires_confirmation) {

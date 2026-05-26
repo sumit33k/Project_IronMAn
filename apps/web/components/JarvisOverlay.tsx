@@ -95,8 +95,9 @@ export default function JarvisOverlay() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw_input: text, input_mode: 'voice' }),
       });
-      const data = await res.json();
-      setResultText(data.user_visible_summary || 'Command received.');
+      const data = await res.json() as Record<string, unknown>;
+      const summary = data?.user_visible_summary;
+      setResultText(typeof summary === 'string' && summary ? summary : 'Command received.');
       setState('done');
     } catch {
       setResultText('Backend offline — command not sent.');

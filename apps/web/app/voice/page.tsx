@@ -102,15 +102,20 @@ export default function VoicePage() {
     setVoiceState('idle');
   };
 
-  const parseIntent = (routingResult: string | Record<string, unknown>): string => {
-    if (typeof routingResult === 'object' && routingResult !== null) {
-      return String(routingResult.intent ?? 'unknown');
+  const parseIntent = (routingResult: unknown): string => {
+    if (routingResult === null || routingResult === undefined) return 'unknown';
+    if (typeof routingResult === 'object') {
+      const obj = routingResult as Record<string, unknown>;
+      return String(obj.intent ?? 'unknown');
     }
     try {
-      const parsed = JSON.parse(routingResult);
-      return parsed.intent ?? routingResult;
+      const parsed: unknown = JSON.parse(String(routingResult));
+      if (parsed !== null && typeof parsed === 'object') {
+        return String((parsed as Record<string, unknown>).intent ?? 'unknown');
+      }
+      return String(parsed ?? 'unknown');
     } catch {
-      return routingResult;
+      return String(routingResult);
     }
   };
 
