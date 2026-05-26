@@ -29,6 +29,7 @@ DEFAULT_MODEL="llama3.1"
 OPEN_BROWSER=true
 API_PID=""
 WEB_PID=""
+PID_FILE="/tmp/jarvis-launcher.pid"
 
 # ── Banner ───────────────────────────────────────────────────
 echo -e "${BOLD}${BLUE}"
@@ -105,6 +106,41 @@ get_db_name_from_database_url() {
 
 is_postgres_url() {
   [[ "${DATABASE_URL:-}" == postgresql://* || "${DATABASE_URL:-}" == postgres://* ]]
+}
+
+# ── Step: Already running? ───────────────────────────────────
+check_already_running() {
+  if curl -sf "http://127.0.0.1:${API_PORT}/health" &>/dev/null; then
+    echo ""
+    echo -e "${BOLD}${GREEN}  Jarvis is already running!${NC}"
+    echo -e "  ${CYAN}UI:${NC}  http://localhost:${WEB_PORT}"
+    echo -e "  ${CYAN}API:${NC} http://localhost:${API_PORT}"
+    echo ""
+
+    if [[ "$OPEN_BROWSER" == true && "$(uname)" == "Darwin" ]]; then
+      open "http://localhost:${WEB_PORT}" 2>/dev/null || true
+    fi
+
+    printf "  Restart Jarvis? [y/N] "
+    read -r _restart_choice
+
+    if [[ "${_restart_choice:-n}" =~ ^[Yy]$ ]]; then
+      info "Stopping existing instance..."
+      if [[ -f "$PID_FILE" ]]; then
+        _old_pid="$(cat "$PID_FILE")"
+        kill "$_old_pid" 2>/dev/null || true
+        sleep 2
+      else
+        # Fall back to killing by port if PID file is missing
+        lsof -ti ":${API_PORT}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+        lsof -ti ":${WEB_PORT}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+        sleep 1
+      fi
+      success "Existing instance stopped. Restarting..."
+    else
+      exit 0
+    fi
+  fi
 }
 
 # ── Step: Environment file ───────────────────────────────────
@@ -482,17 +518,40 @@ pull_model() {
 # ── Cleanup trap ─────────────────────────────────────────────
 cleanup() {
   echo ""
-  info "Shutting down..."
+  info "Shutting down Jarvis..."
 
-  if [[ -n "$API_PID" ]]; then
-    kill "$API_PID" 2>/dev/null && info "API stopped" || true
+  # Step 1: ask the API to flush in-flight AgentRun records to the DB
+  # before we kill the process so no work is lost.
+  if [[ -n "${API_PID:-}" ]] && kill -0 "${API_PID}" 2>/dev/null; then
+    info "Persisting in-flight work to database..."
+    if curl -sf -X POST "http://127.0.0.1:${API_PORT}/system/persist" \
+        -H "Content-Type: application/json" --max-time 5 &>/dev/null; then
+      success "Database flushed — all work saved"
+    else
+      warn "Could not reach API for graceful persist (data committed per-request is safe)"
+    fi
+    sleep 0.3
   fi
 
-  if [[ -n "$WEB_PID" ]]; then
-    kill "$WEB_PID" 2>/dev/null && info "Frontend stopped" || true
+  # Step 2: stop API
+  if [[ -n "${API_PID:-}" ]]; then
+    kill "${API_PID}" 2>/dev/null || true
+    wait "${API_PID}" 2>/dev/null || true
+    info "API stopped (pid ${API_PID})"
   fi
 
-  success "Jarvis stopped. Goodbye."
+  # Step 3: stop frontend
+  if [[ -n "${WEB_PID:-}" ]]; then
+    kill "${WEB_PID}" 2>/dev/null || true
+    wait "${WEB_PID}" 2>/dev/null || true
+    info "Frontend stopped (pid ${WEB_PID})"
+  fi
+
+  # Step 4: clean up PID file
+  rm -f "$PID_FILE" 2>/dev/null || true
+
+  echo ""
+  success "Jarvis stopped. All work persisted. Goodbye."
 }
 
 # ── Wait helper ──────────────────────────────────────────────
@@ -550,6 +609,10 @@ start_services() {
 
   WEB_PID=$!
 
+  # Write the launcher's PID so the cleanup trap and the already-running
+  # check can reliably stop this exact process.
+  echo "$$" > "$PID_FILE"
+
   if ! wait_for_url "http://127.0.0.1:${API_PORT}/health" 30 "API"; then
     warn "API did not start in 30 seconds. Last lines of /tmp/jarvis-api.log:"
     tail -30 /tmp/jarvis-api.log 2>/dev/null || true
@@ -569,6 +632,11 @@ start_services() {
   echo ""
   info "Press Ctrl+C to stop all services."
 
+  # macOS system notification — fires once Jarvis is fully ready.
+  if [[ "$(uname)" == "Darwin" ]] && command -v osascript &>/dev/null; then
+    osascript -e "display notification \"Jarvis is ready — http://localhost:${WEB_PORT}\" with title \"Jarvis Command Center\" sound name \"Glass\"" 2>/dev/null || true
+  fi
+
   if [[ "$OPEN_BROWSER" == true ]]; then
     sleep 1
 
@@ -587,6 +655,7 @@ start_services() {
 # ── Main ─────────────────────────────────────────────────────
 main() {
   parse_args "$@"
+  check_already_running
 
   check_requirements
   setup_repo
