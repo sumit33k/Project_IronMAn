@@ -17,8 +17,11 @@ export default function JarvisOverlay() {
   const [transcript, setTranscript] = useState('');
   const [resultText, setResultText] = useState('');
   const [bars, setBars] = useState<number[]>(Array(NUM_BARS).fill(3));
+  const [sttProvider, setSttProvider] = useState<string>('browser');
 
   const recognitionRef = useRef<unknown>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const finalRef = useRef('');
   const barTimer = useRef<ReturnType<typeof setInterval>>();
   const autoCloseTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -26,6 +29,9 @@ export default function JarvisOverlay() {
   const close = useCallback(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (recognitionRef.current as any)?.abort();
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
     clearInterval(barTimer.current);
     clearTimeout(autoCloseTimer.current);
     setJarvisOpen(false);
@@ -34,6 +40,14 @@ export default function JarvisOverlay() {
     setResultText('');
     finalRef.current = '';
   }, [setJarvisOpen]);
+
+  // Load voice settings on mount to know which STT provider to use
+  useEffect(() => {
+    fetch(`${API}/voice/settings`)
+      .then((r) => r.json())
+      .then((s) => { if (s?.stt_provider) setSttProvider(s.stt_provider); })
+      .catch(() => {});
+  }, []);
 
   // animate bars while listening
   useEffect(() => {
@@ -72,64 +86,99 @@ export default function JarvisOverlay() {
     return () => window.removeEventListener('keydown', onKey);
   }, [close]);
 
-  const startListening = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      setResultText('Speech recognition unavailable. Use Chrome or Safari.');
+  const sendCommand = async (text: string) => {
+    if (!text.trim()) { setState('boot'); setTranscript(''); return; }
+    setState('processing');
+    try {
+      const res = await fetch(`${API}/commands/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_input: text, input_mode: 'voice' }),
+      });
+      const data = await res.json();
+      setResultText(data.user_visible_summary || 'Command received.');
+      setState('done');
+    } catch {
+      setResultText('Backend offline — command not sent.');
+      setState('error');
+    }
+    autoCloseTimer.current = setTimeout(() => close(), 4000);
+  };
+
+  const startListeningWithMediaRecorder = async () => {
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setResultText('Microphone access denied.');
       setState('error');
       return;
     }
+    audioChunksRef.current = [];
+    const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    mediaRecorderRef.current = mr;
+    mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+    mr.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      if (blob.size < 1000) { setState('boot'); setTranscript(''); return; }
+      setState('processing');
+      const fd = new FormData();
+      fd.append('audio', blob, 'recording.webm');
+      try {
+        const res = await fetch(`${API}/voice/transcribe`, { method: 'POST', body: fd });
+        const data = await res.json();
+        const text = data.transcript || '';
+        setTranscript(text);
+        finalRef.current = text;
+        await sendCommand(text);
+      } catch {
+        setResultText('Transcription failed.');
+        setState('error');
+        autoCloseTimer.current = setTimeout(() => close(), 4000);
+      }
+    };
+    setState('listening');
+    mr.start();
+    // Auto-stop after 10 seconds silence window; user can also click the mic button
+    setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 10000);
+  };
 
+  const startListeningBrowser = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setResultText('Speech recognition unavailable. Switch to stt_provider=groq in voice settings.');
+      setState('error');
+      return;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rec = new SR() as any;
     rec.continuous = false;
     rec.interimResults = true;
     rec.lang = 'en-US';
     recognitionRef.current = rec;
-
     rec.onstart = () => setState('listening');
-
     rec.onresult = (e: unknown) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ev = e as any;
       const t = Array.from(ev.results as unknown[])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((r: any) => r[0].transcript)
-        .join('');
+        .map((r: any) => r[0].transcript).join('');
       setTranscript(t);
       finalRef.current = t;
     };
-
-    rec.onend = async () => {
-      if (!finalRef.current.trim()) {
-        setState('boot');
-        setTranscript('');
-        return;
-      }
-      setState('processing');
-      try {
-        const res = await fetch(`${API}/commands/route`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ raw_input: finalRef.current, input_mode: 'voice' }),
-        });
-        const data = await res.json();
-        setResultText(data.user_visible_summary || 'Command received.');
-        setState('done');
-      } catch {
-        setResultText('Backend offline — command not sent.');
-        setState('error');
-      }
-      autoCloseTimer.current = setTimeout(() => close(), 4000);
-    };
-
-    rec.onerror = () => {
-      setResultText('Microphone access denied or unavailable.');
-      setState('error');
-    };
-
+    rec.onend = () => sendCommand(finalRef.current);
+    rec.onerror = () => { setResultText('Microphone access denied or unavailable.'); setState('error'); };
     rec.start();
+  };
+
+  const startListening = () => {
+    if (sttProvider !== 'browser') {
+      startListeningWithMediaRecorder();
+    } else {
+      startListeningBrowser();
+    }
   };
 
   const ringVariants = {
@@ -325,6 +374,22 @@ export default function JarvisOverlay() {
                 )}
               </AnimatePresence>
             </div>
+
+            {/* Stop recording button for server-side STT */}
+            <AnimatePresence>
+              {state === 'listening' && sttProvider !== 'browser' && (
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => mediaRecorderRef.current?.stop()}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full border text-sm font-medium transition-all bg-blue-500/10 hover:bg-blue-500/20"
+                  style={{ borderColor: '#3b82f655', color: '#3b82f6' }}
+                >
+                  <Mic className="w-4 h-4" /> Done — send command
+                </motion.button>
+              )}
+            </AnimatePresence>
 
             {/* Mic re-trigger button (after done/error) */}
             <AnimatePresence>

@@ -1,8 +1,10 @@
 import json
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+import httpx
+from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import AppSettings, Command
 from app.services.command_router import CommandRouter
@@ -14,7 +16,7 @@ VOICE_DEFAULTS = {
     "push_to_talk_enabled": True,
     "wake_word_enabled": False,
     "tts_enabled": False,
-    "stt_provider": "browser",
+    "stt_provider": "browser",  # options: "browser" | "groq" | "deepgram"
 }
 
 
@@ -73,12 +75,34 @@ def update_voice_settings(payload: dict, db: Session = Depends(get_db)):
 
 
 @router.post("/transcribe")
-async def transcribe_audio():
+async def transcribe_audio(audio: UploadFile = File(...), db: Session = Depends(get_db)):
+    voice_settings = _load_voice_settings(db)
+    provider = voice_settings.get("stt_provider", "browser")
+
+    if provider == "groq":
+        if not settings.groq_api_key:
+            raise HTTPException(status_code=400, detail="GROQ_API_KEY not configured. Add it to .env and set stt_provider=groq in voice settings.")
+        audio_bytes = await audio.read()
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                files={"file": (audio.filename or "audio.webm", audio_bytes, audio.content_type or "audio/webm")},
+                data={"model": "whisper-large-v3-turbo", "language": "en", "response_format": "json"},
+            )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Groq transcription failed: {resp.text}")
+        return {"transcript": resp.json().get("text", ""), "confidence": 1.0, "provider": "groq"}
+
+    if provider == "deepgram":
+        raise HTTPException(status_code=501, detail="Deepgram provider: set DEEPGRAM_API_KEY and update voice route.")
+
+    # Default: tell the frontend to use the browser Web Speech API
     return {
         "transcript": "",
         "confidence": 0.0,
         "provider": "browser",
-        "note": "Use browser Web Speech API for transcription",
+        "note": "Set stt_provider=groq in voice settings for server-side transcription.",
     }
 
 

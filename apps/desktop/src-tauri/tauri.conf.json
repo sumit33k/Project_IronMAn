@@ -6,8 +6,8 @@
   "build": {
     "beforeDevCommand": "",
     "devUrl": "http://localhost:3000",
-    "beforeBuildCommand": "",
-    "frontendDist": "http://localhost:3000"
+    "beforeBuildCommand": "cd ../web && NEXT_STATIC_EXPORT=true npm run build",
+    "frontendDist": "../web/out"
   },
   "app": {
     "trayIcon": {
