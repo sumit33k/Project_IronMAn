@@ -151,6 +151,28 @@ export const api = {
   // Voice settings
   getVoiceSettings: () => apiFetch<VoiceSettingsData>('/voice/settings'),
   updateVoiceSettings: (data: Partial<VoiceSettingsData>) => apiFetch<VoiceSettingsData>('/voice/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Notes
+  getNotes: (search?: string) => apiFetch<Note[]>(`/notes${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  createNote: (data: { title: string; body?: string; tags?: string[]; pinned?: boolean }) => apiFetch<Note>('/notes', { method: 'POST', body: JSON.stringify(data) }),
+  updateNote: (id: string, data: Partial<Note>) => apiFetch<Note>(`/notes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteNote: (id: string) => apiFetch<void>(`/notes/${id}`, { method: 'DELETE' }),
+
+  // Projects
+  getProjects: () => apiFetch<Project[]>('/projects'),
+  createProject: (data: { title: string; description?: string; color?: string; due_date?: string }) => apiFetch<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+  updateProject: (id: string, data: Partial<Project>) => apiFetch<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteProject: (id: string) => apiFetch<void>(`/projects/${id}`, { method: 'DELETE' }),
+  getProjectTasks: (id: string) => apiFetch<Task[]>(`/projects/${id}/tasks`),
+
+  // Routines
+  getRoutines: () => apiFetch<Routine[]>('/routines'),
+  createRoutine: (data: { name: string; description?: string; frequency?: string; target_time?: string; duration_minutes?: number; category?: string }) => apiFetch<Routine>('/routines', { method: 'POST', body: JSON.stringify(data) }),
+  completeRoutine: (id: string) => apiFetch<{ ok: boolean; streak: number; already_done: boolean }>(`/routines/${id}/complete`, { method: 'POST' }),
+  deleteRoutine: (id: string) => apiFetch<void>(`/routines/${id}`, { method: 'DELETE' }),
+
+  // Analytics
+  getAnalytics: (days?: number) => apiFetch<AnalyticsSummary>(`/analytics/summary?days=${days || 30}`),
 };
 
 // Types
@@ -381,4 +403,57 @@ export interface VoiceSettingsData {
   wake_word_enabled: boolean;
   tts_enabled: boolean;
   stt_provider: string;
+}
+
+export interface Note {
+  id: string;
+  title: string;
+  body: string;
+  linked_task_id?: string;
+  tags: string[];
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  color: string;
+  due_date?: string;
+  task_count: number;
+  completed_count: number;
+  progress: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Routine {
+  id: string;
+  name: string;
+  description: string;
+  frequency: string;
+  target_time?: string;
+  duration_minutes: number;
+  category: string;
+  active: boolean;
+  streak: number;
+  last_completed?: string;
+  created_at: string;
+}
+
+export interface AnalyticsSummary {
+  period_days: number;
+  total_tasks: number;
+  completed_tasks: number;
+  completion_rate: number;
+  active_tasks: number;
+  completion_trend: { date: string; completed: number }[];
+  priority_breakdown: { priority: string; count: number }[];
+  status_breakdown: { status: string; count: number }[];
+  category_breakdown: { category: string; count: number }[];
+  top_agents: { agent_id: string; runs: number }[];
+  command_usage: { voice: number; text: number; total: number };
 }

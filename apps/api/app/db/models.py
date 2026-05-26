@@ -47,6 +47,7 @@ class Task(Base):
     agent_status: Mapped[str] = mapped_column(String(32), nullable=True)
     context_summary: Mapped[str] = mapped_column(Text, nullable=True)
     confidence_score: Mapped[float] = mapped_column(Float, nullable=True)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=True)
 
     agent_runs: Mapped[list["AgentRun"]] = relationship(
         "AgentRun",
@@ -150,4 +151,47 @@ class AppSettings(Base):
 
     key: Mapped[str] = mapped_column(String(255), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Note(Base):
+    __tablename__ = "notes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    body: Mapped[str] = mapped_column(Text, default="")
+    linked_task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), nullable=True)
+    tags: Mapped[str] = mapped_column(Text, default="[]")
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(32), default="active")  # active|completed|archived
+    color: Mapped[str] = mapped_column(String(16), default="#6366f1")
+    due_date: Mapped[str] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Routine(Base):
+    __tablename__ = "routines"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    frequency: Mapped[str] = mapped_column(String(32), default="daily")  # daily|weekly|weekdays|weekends
+    target_time: Mapped[str] = mapped_column(String(8), nullable=True)  # HH:MM
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    category: Mapped[str] = mapped_column(String(64), default="general")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    streak: Mapped[int] = mapped_column(Integer, default=0)
+    last_completed: Mapped[str] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

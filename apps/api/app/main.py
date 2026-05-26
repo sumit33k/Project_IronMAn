@@ -20,6 +20,10 @@ from app.routes import agents, ai, briefings, commands, settings as settings_rou
 from app.routes import eod, integrations as integrations_router, robots as robots_router
 from app.routes import presentations as presentations_router
 from app.routes import system as system_router
+from app.routes import notes as notes_router
+from app.routes import projects as projects_router
+from app.routes import routines as routines_router
+from app.routes import analytics as analytics_router
 from app.seed import seed_integrations
 
 Base.metadata.create_all(bind=engine)
@@ -84,6 +88,10 @@ app.include_router(integrations_router.router)
 app.include_router(robots_router.router)
 app.include_router(presentations_router.router)
 app.include_router(system_router.router)
+app.include_router(notes_router.router)
+app.include_router(projects_router.router)
+app.include_router(routines_router.router)
+app.include_router(analytics_router.router)
 
 
 @app.get("/health")
