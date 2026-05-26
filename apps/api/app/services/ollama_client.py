@@ -49,11 +49,14 @@ class OllamaClient:
         return []
 
     async def generate(self, prompt: str, model: str | None = None) -> str:
+        options: dict = {"temperature": settings.ollama_temperature}
+        if settings.ollama_max_tokens > 0:
+            options["num_predict"] = settings.ollama_max_tokens
         payload = {
             "model": model or self.model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": settings.ollama_temperature},
+            "options": options,
         }
         last_err: Exception = OllamaUnavailableError("Ollama is not running. Start it with: ollama serve")
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -70,11 +73,14 @@ class OllamaClient:
         raise last_err
 
     async def chat(self, messages: list[dict], model: str | None = None) -> str:
+        options: dict = {"temperature": settings.ollama_temperature}
+        if settings.ollama_max_tokens > 0:
+            options["num_predict"] = settings.ollama_max_tokens
         payload = {
             "model": model or self.model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": settings.ollama_temperature},
+            "options": options,
         }
         last_err: Exception = OllamaUnavailableError("Ollama is not running. Start it with: ollama serve")
         async with httpx.AsyncClient(timeout=self.timeout) as client:
