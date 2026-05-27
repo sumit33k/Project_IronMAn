@@ -29,6 +29,8 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
+const isProduction = process.env.NODE_ENV === "production";
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
@@ -45,13 +47,37 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </main>
         </div>
         <JarvisOverlay />
-        <Script id="sw-register" strategy="afterInteractive">{`
-          if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-              navigator.serviceWorker.register('/sw.js').catch(() => {});
-            });
-          }
-        `}</Script>
+        {isProduction ? (
+          <Script id="sw-register" strategy="afterInteractive">{`
+            if ('serviceWorker' in navigator) {
+              window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(() => {});
+              });
+            }
+          `}</Script>
+        ) : (
+          <Script id="sw-unregister-dev" strategy="beforeInteractive">{`
+            (async () => {
+              const hadController = 'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
+              if ('serviceWorker' in navigator) {
+                await navigator.serviceWorker.getRegistrations()
+                  .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+                  .catch(() => {});
+              }
+              if ('caches' in window) {
+                await caches.keys()
+                  .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+                  .catch(() => {});
+              }
+              if (hadController && !sessionStorage.getItem('sw-dev-cleaned')) {
+                sessionStorage.setItem('sw-dev-cleaned', '1');
+                window.location.reload();
+              } else {
+                sessionStorage.removeItem('sw-dev-cleaned');
+              }
+            })();
+          `}</Script>
+        )}
       </body>
     </html>
   );

@@ -1,7 +1,7 @@
 // Jarvis Command Center — Service Worker
 // Caches the shell for offline launch; all API calls go through network.
 
-const CACHE = 'jarvis-v1';
+const CACHE = 'jarvis-v2';
 const SHELL = ['/', '/today', '/robots', '/focus'];
 
 self.addEventListener('install', e => {
