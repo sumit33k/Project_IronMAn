@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/integrations/google/callback"
+    frontend_url: str = "http://localhost:3005"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
     # Set to true to allow any origin (needed when the UI is deployed remotely)
     cors_allow_all_origins: bool = False

@@ -2,9 +2,9 @@ import json
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 from sqlalchemy.orm import Session
-from app.db.models import AgentRun
+from app.db.models import Agent, AgentRun
 
 
 class BaseAgent(ABC):
@@ -23,7 +23,24 @@ class BaseAgent(ABC):
     async def run(self, input_data: dict, db: Session) -> dict:
         pass
 
+    def sync_definition(self, db: Session) -> None:
+        agent = db.get(Agent, self.id)
+        if not agent:
+            agent = Agent(id=self.id)
+            db.add(agent)
+
+        agent.name = self.name
+        agent.agent_type = self.agent_type
+        agent.description = self.description
+        agent.enabled = True
+        agent.tools_allowed = "[]"
+        agent.model_provider = "ollama"
+        agent.model_name = getattr(self.ollama, "model", "llama3.1")
+        agent.requires_approval_for = json.dumps(self.requires_approval_for)
+
     async def execute(self, input_data: dict, db: Session, task_id: Optional[str] = None) -> AgentRun:
+        self.sync_definition(db)
+
         run = AgentRun(
             id=str(uuid.uuid4()),
             task_id=task_id,

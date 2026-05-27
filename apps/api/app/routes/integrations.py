@@ -11,6 +11,11 @@ from app.core.config import settings
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 
+def _frontend_redirect_url(status: str) -> str:
+    frontend_url = (getattr(settings, "frontend_url", "") or "http://localhost:3005").rstrip("/")
+    return f"{frontend_url}/integrations?status={status}"
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -165,7 +170,7 @@ async def google_callback(code: str, db: Session = Depends(get_db)):
             row.last_sync_at = datetime.now(timezone.utc)
     db.commit()
 
-    return RedirectResponse(url="http://localhost:3000/integrations?status=connected")
+    return RedirectResponse(url=_frontend_redirect_url("connected"))
 
 
 @router.post("/{integration_type}/sync")

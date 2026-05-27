@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.db.database import SessionLocal
 from app.db.models import Integration
 from app.main import app
+from app.routes import integrations
 
 client = TestClient(app)
 
@@ -41,3 +42,12 @@ def test_disconnect_gmail_clears_config_without_nulling_required_column() -> Non
         assert gmail.last_sync_at is None
     finally:
         db.close()
+
+
+def test_frontend_redirect_url_uses_configured_frontend(monkeypatch) -> None:
+    monkeypatch.setattr(integrations.settings, "frontend_url", "http://localhost:3005/")
+
+    assert (
+        integrations._frontend_redirect_url("connected")
+        == "http://localhost:3005/integrations?status=connected"
+    )

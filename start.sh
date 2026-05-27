@@ -592,6 +592,7 @@ start_services() {
   (
     source "$VENV/bin/activate"
     load_env
+    export FRONTEND_URL="${FRONTEND_URL:-http://localhost:${WEB_PORT}}"
     cd "$API_DIR"
     exec uvicorn app.main:app --port "$API_PORT" --host 127.0.0.1 >> /tmp/jarvis-api.log 2>&1
   ) &
