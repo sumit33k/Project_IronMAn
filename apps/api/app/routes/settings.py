@@ -21,7 +21,7 @@ DEFAULT_SETTINGS = {
     "ollama_model": "llama3.1",
     "wake_phrase": "hey jarvis",
     "voice_enabled": False,
-    "tts_enabled": False,
+    "tts_enabled": True,
     "user_name": "",
     "display_name": "Sumit",
     "theme": "dark",

@@ -15,7 +15,7 @@ VOICE_DEFAULTS = {
     "wake_phrase": "hey jarvis",
     "push_to_talk_enabled": True,
     "wake_word_enabled": False,
-    "tts_enabled": False,
+    "tts_enabled": True,
     "stt_provider": "browser",  # options: "browser" | "groq" | "deepgram"
 }
 
@@ -32,7 +32,7 @@ class VoiceSettings(BaseModel):
     wake_phrase: str = "hey jarvis"
     push_to_talk_enabled: bool = True
     wake_word_enabled: bool = False
-    tts_enabled: bool = False
+    tts_enabled: bool = True
     stt_provider: str = "browser"
 
 

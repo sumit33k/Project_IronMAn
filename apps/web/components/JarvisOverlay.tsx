@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Zap, Mic } from 'lucide-react';
+import { X, Zap, Mic, Volume2, VolumeX, RotateCw } from 'lucide-react';
 import { useStore } from '@/stores/useStore';
 
-type JarvisState = 'boot' | 'listening' | 'processing' | 'done' | 'error';
+type JarvisState = 'boot' | 'listening' | 'processing' | 'speaking' | 'done' | 'error';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -27,22 +27,34 @@ export default function JarvisOverlay() {
   const [resultText, setResultText] = useState('');
   const [bars, setBars] = useState<number[]>(Array(NUM_BARS).fill(3));
   const [sttProvider, setSttProvider] = useState<string>('browser');
+  const [voiceReplies, setVoiceReplies] = useState(true);
+  const [continuousMode, setContinuousMode] = useState(true);
 
   const recognitionRef = useRef<unknown>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const finalRef = useRef('');
+  const ignoreNextEndRef = useRef(false);
+  const closingRef = useRef(false);
   const barTimer = useRef<ReturnType<typeof setInterval>>();
   const autoCloseTimer = useRef<ReturnType<typeof setTimeout>>();
+  const restartTimer = useRef<ReturnType<typeof setTimeout>>();
+  const mediaStopTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const close = useCallback(() => {
+    closingRef.current = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (recognitionRef.current as any)?.abort();
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     clearInterval(barTimer.current);
     clearTimeout(autoCloseTimer.current);
+    clearTimeout(restartTimer.current);
+    clearTimeout(mediaStopTimer.current);
     setJarvisOpen(false);
     setState('boot');
     setTranscript('');
@@ -54,7 +66,10 @@ export default function JarvisOverlay() {
   useEffect(() => {
     fetch(`${API}/voice/settings`)
       .then((r) => r.json())
-      .then((s) => { if (s?.stt_provider) setSttProvider(s.stt_provider); })
+      .then((s) => {
+        if (s?.stt_provider) setSttProvider(s.stt_provider);
+        if (typeof s?.tts_enabled === 'boolean') setVoiceReplies(s.tts_enabled);
+      })
       .catch(() => {});
   }, []);
 
@@ -78,6 +93,12 @@ export default function JarvisOverlay() {
   // start recognition when overlay opens
   useEffect(() => {
     if (!jarvisOpen) return;
+    closingRef.current = false;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    clearTimeout(restartTimer.current);
+    clearTimeout(autoCloseTimer.current);
     setState('boot');
     setTranscript('');
     setResultText('');
@@ -95,8 +116,89 @@ export default function JarvisOverlay() {
     return () => window.removeEventListener('keydown', onKey);
   }, [close]);
 
+  const chooseVoice = (): SpeechSynthesisVoice | null => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    return (
+      voices.find((v) => /samantha|alex|google us english|microsoft aria/i.test(v.name)) ??
+      voices.find((v) => v.lang.toLowerCase().startsWith('en')) ??
+      null
+    );
+  };
+
+  const speak = (text: string): Promise<boolean> => new Promise((resolve) => {
+    if (!voiceReplies || typeof window === 'undefined' || !('speechSynthesis' in window) || !text.trim()) {
+      resolve(false);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.voice = chooseVoice();
+    utterance.rate = 0.98;
+    utterance.pitch = 0.96;
+    utterance.volume = 1;
+    utterance.onend = () => resolve(true);
+    utterance.onerror = () => resolve(false);
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    window.speechSynthesis.resume();
+  });
+
+  const queueNextListen = (delay = 650) => {
+    if (!continuousMode || closingRef.current) return;
+    clearTimeout(restartTimer.current);
+    restartTimer.current = setTimeout(() => {
+      if (closingRef.current) return;
+      setState('boot');
+      setTranscript('');
+      setResultText('');
+      finalRef.current = '';
+      startListening();
+    }, delay);
+  };
+
+  const respond = async (text: string, nextState: Extract<JarvisState, 'done' | 'error'> = 'done') => {
+    setResultText(text);
+    if (voiceReplies && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      setState('speaking');
+      await speak(text);
+    }
+    if (closingRef.current) return;
+    if (nextState === 'done' && continuousMode) {
+      queueNextListen();
+      return;
+    }
+    setState(nextState);
+  };
+
+  const isStopCommand = (text: string): boolean => {
+    const normalized = text.trim().toLowerCase();
+    return [
+      'stop listening',
+      'stop jarvis',
+      'close jarvis',
+      'close voice',
+      'cancel voice',
+      'exit voice',
+      'goodbye jarvis',
+    ].some((phrase) => normalized.includes(phrase));
+  };
+
   const sendCommand = async (text: string) => {
-    if (!text.trim()) { setState('boot'); setTranscript(''); return; }
+    if (!text.trim()) {
+      setState('boot');
+      setTranscript('');
+      queueNextListen();
+      return;
+    }
+
+    if (isStopCommand(text)) {
+      await respond('Okay, I will stop listening now.', 'done');
+      close();
+      return;
+    }
+
     setState('processing');
     try {
       const res = await fetch(`${API}/commands/route`, {
@@ -105,14 +207,10 @@ export default function JarvisOverlay() {
         body: JSON.stringify({ raw_input: text, input_mode: 'voice' }),
       });
       const data = await res.json() as Record<string, unknown>;
-      const summary = data?.user_visible_summary;
-      setResultText(typeof summary === 'string' && summary ? summary : 'Command received.');
-      setState('done');
+      await respond(commandSummary(data));
     } catch {
-      setResultText('Backend offline — command not sent.');
-      setState('error');
+      await respond('Backend offline. I heard you, but I could not send the command.', 'error');
     }
-    autoCloseTimer.current = setTimeout(() => close(), 4000);
   };
 
   const startListeningWithMediaRecorder = async () => {
@@ -130,8 +228,14 @@ export default function JarvisOverlay() {
     mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
     mr.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
+      if (closingRef.current) return;
       const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      if (blob.size < 1000) { setState('boot'); setTranscript(''); return; }
+      if (blob.size < 1000) {
+        setState('boot');
+        setTranscript('');
+        queueNextListen();
+        return;
+      }
       setState('processing');
       const fd = new FormData();
       fd.append('audio', blob, 'recording.webm');
@@ -143,24 +247,24 @@ export default function JarvisOverlay() {
         finalRef.current = text;
         await sendCommand(text);
       } catch {
-        setResultText('Transcription failed.');
-        setState('error');
-        autoCloseTimer.current = setTimeout(() => close(), 4000);
+        await respond('Transcription failed. Please try again.', 'error');
       }
     };
     setState('listening');
     mr.start();
     // Auto-stop after 10 seconds silence window; user can also click the mic button
-    setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 10000);
+    mediaStopTimer.current = setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 10000);
   };
 
-  const startListeningBrowser = () => {
+  function startListeningBrowser() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
-      setResultText('Speech recognition unavailable. Switch to stt_provider=groq in voice settings.');
-      setState('error');
+      void respond('Speech recognition is unavailable. Switch to server transcription in voice settings.', 'error');
       return;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rec = new SR() as any;
@@ -168,6 +272,7 @@ export default function JarvisOverlay() {
     rec.interimResults = true;
     rec.lang = 'en-US';
     recognitionRef.current = rec;
+    ignoreNextEndRef.current = false;
     rec.onstart = () => setState('listening');
     rec.onresult = (e: unknown) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -180,42 +285,59 @@ export default function JarvisOverlay() {
     };
 
     rec.onend = async () => {
+      if (ignoreNextEndRef.current) {
+        ignoreNextEndRef.current = false;
+        return;
+      }
+      if (closingRef.current) return;
       if (!finalRef.current.trim()) {
         setState('boot');
         setTranscript('');
+        queueNextListen(450);
         return;
       }
-      setState('processing');
-      try {
-        const res = await fetch(`${API}/commands/route`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ raw_input: finalRef.current, input_mode: 'voice' }),
-        });
-        const data = await res.json();
-        setResultText(commandSummary(data));
-        setState('done');
-      } catch {
-        setResultText('Backend offline — command not sent.');
-        setState('error');
-      }
-      autoCloseTimer.current = setTimeout(() => close(), 4000);
+      await sendCommand(finalRef.current);
     };
 
-    rec.onerror = () => {
-      setResultText('Microphone access denied or unavailable.');
-      setState('error');
+    rec.onerror = (event: { error?: string }) => {
+      if (closingRef.current || event.error === 'aborted') return;
+      if (event.error === 'no-speech') return;
+      ignoreNextEndRef.current = true;
+      void respond('Microphone access was denied or unavailable.', 'error');
     };
 
     rec.start();
-  };
+  }
 
-  const startListening = () => {
+  function startListening() {
+    if (closingRef.current) return;
+    clearTimeout(restartTimer.current);
+    clearTimeout(autoCloseTimer.current);
+    finalRef.current = '';
+    ignoreNextEndRef.current = false;
     if (sttProvider !== 'browser') {
       startListeningWithMediaRecorder();
     } else {
       startListeningBrowser();
     }
+  }
+
+  const toggleVoiceReplies = () => {
+    setVoiceReplies((value) => {
+      const next = !value;
+      if (!next && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      return next;
+    });
+  };
+
+  const toggleContinuousMode = () => {
+    setContinuousMode((value) => {
+      const next = !value;
+      if (!next) clearTimeout(restartTimer.current);
+      return next;
+    });
   };
 
   const ringVariants = {
@@ -235,6 +357,7 @@ export default function JarvisOverlay() {
     boot: 'Initialising…',
     listening: 'Listening…',
     processing: 'Processing…',
+    speaking: 'Speaking…',
     done: 'Got it.',
     error: 'Error',
   };
@@ -243,6 +366,7 @@ export default function JarvisOverlay() {
     boot: '#6366f1',
     listening: '#3b82f6',
     processing: '#a855f7',
+    speaking: '#10b981',
     done: '#10b981',
     error: '#ef4444',
   };
@@ -281,6 +405,27 @@ export default function JarvisOverlay() {
             Press <kbd className="px-1.5 py-0.5 bg-white/5 rounded border border-white/10 text-slate-500">ESC</kbd> to dismiss
           </span>
 
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 flex items-center gap-2">
+            <button
+              onClick={toggleVoiceReplies}
+              title={voiceReplies ? 'Voice replies on' : 'Voice replies off'}
+              className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+            >
+              {voiceReplies ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={toggleContinuousMode}
+              title={continuousMode ? 'Continuous conversation on' : 'Continuous conversation off'}
+              className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all ${
+                continuousMode
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              <RotateCw className="w-4 h-4" />
+            </button>
+          </div>
+
           {/* Center content */}
           <div className="relative flex flex-col items-center gap-6 select-none">
             {/* Pulse rings */}
@@ -312,6 +457,13 @@ export default function JarvisOverlay() {
                   animate={{ rotate: 360 }}
                   transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
                 />
+              ) : state === 'speaking' ? (
+                <motion.div
+                  animate={{ scale: [1, 1.12, 1] }}
+                  transition={{ repeat: Infinity, duration: 0.9 }}
+                >
+                  <Volume2 className="w-10 h-10 text-emerald-400" />
+                </motion.div>
               ) : state === 'done' ? (
                 <motion.div
                   initial={{ scale: 0 }}
@@ -393,10 +545,10 @@ export default function JarvisOverlay() {
                     exit={{ opacity: 0 }}
                     className="text-sm leading-relaxed"
                     style={{
-                      color: state === 'done' ? '#10b981' : state === 'error' ? '#ef4444' : '#94a3b8',
+                      color: state === 'done' || state === 'speaking' ? '#10b981' : state === 'error' ? '#ef4444' : '#94a3b8',
                     }}
                   >
-                    {state === 'done' || state === 'error' ? resultText : `"${transcript}"`}
+                    {state === 'done' || state === 'speaking' || state === 'error' ? resultText : `"${transcript}"`}
                   </motion.p>
                 )}
                 {state === 'boot' && !transcript && (
@@ -430,7 +582,7 @@ export default function JarvisOverlay() {
 
             {/* Mic re-trigger button (after done/error) */}
             <AnimatePresence>
-              {(state === 'done' || state === 'error') && (
+              {((state === 'done' && !continuousMode) || state === 'error') && (
                 <motion.button
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}

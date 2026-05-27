@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Loader2, CheckCircle, AlertCircle, Volume2, History } from 'lucide-react';
+import { Mic, MicOff, Loader2, CheckCircle, AlertCircle, Volume2, VolumeX, History, RotateCw } from 'lucide-react';
 import { useStore } from '@/stores/useStore';
 import { api, type CommandResult, type VoiceHistoryRecord } from '@/lib/api';
 import { clsx } from 'clsx';
 
-type VoiceState = 'idle' | 'listening' | 'processing' | 'done' | 'error';
+type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'done' | 'error';
 
 export default function VoicePage() {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -15,8 +15,13 @@ export default function VoicePage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [history, setHistory] = useState<VoiceHistoryRecord[]>([]);
+  const [voiceReplies, setVoiceReplies] = useState(true);
+  const [continuousMode, setContinuousMode] = useState(true);
   const recognitionRef = useRef<unknown>(null);
   const finalTranscriptRef = useRef('');
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const ignoreNextEndRef = useRef(false);
+  const closingRef = useRef(false);
   const { routeCommand } = useStore();
 
   useEffect(() => {
@@ -25,7 +30,81 @@ export default function VoicePage() {
       .catch(() => {
         // History endpoint may not exist yet — fail silently
       });
+
+    api.getVoiceSettings()
+      .then((settings) => {
+        if (typeof settings.tts_enabled === 'boolean') setVoiceReplies(settings.tts_enabled);
+      })
+      .catch(() => {});
+
+    return () => {
+      clearTimeout(restartTimerRef.current);
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      (recognitionRef.current as any)?.abort?.();
+    };
   }, []);
+
+  const chooseVoice = (): SpeechSynthesisVoice | null => {
+    if (!('speechSynthesis' in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    return (
+      voices.find((v) => /samantha|alex|google us english|microsoft aria/i.test(v.name)) ??
+      voices.find((v) => v.lang.toLowerCase().startsWith('en')) ??
+      null
+    );
+  };
+
+  const speak = (text: string): Promise<boolean> => new Promise((resolve) => {
+    if (!voiceReplies || !('speechSynthesis' in window) || !text.trim()) {
+      resolve(false);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.voice = chooseVoice();
+    utterance.rate = 0.98;
+    utterance.pitch = 0.96;
+    utterance.onend = () => resolve(true);
+    utterance.onerror = () => resolve(false);
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    window.speechSynthesis.resume();
+  });
+
+  const queueNextListen = (delay = 650) => {
+    if (!continuousMode || closingRef.current) return;
+    clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = setTimeout(() => {
+      if (closingRef.current) return;
+      startListening();
+    }, delay);
+  };
+
+  const isStopCommand = (text: string): boolean => {
+    const normalized = text.trim().toLowerCase();
+    return [
+      'stop listening',
+      'stop jarvis',
+      'close voice',
+      'cancel voice',
+      'exit voice',
+      'goodbye jarvis',
+    ].some((phrase) => normalized.includes(phrase));
+  };
+
+  const speakThenMaybeListen = async (message: string, nextState: VoiceState = 'done') => {
+    if (voiceReplies && 'speechSynthesis' in window) {
+      setVoiceState('speaking');
+      await speak(message);
+    }
+    if (closingRef.current) return;
+    if (nextState === 'done' && continuousMode) {
+      queueNextListen();
+      return;
+    }
+    setVoiceState(nextState);
+  };
 
   const startListening = () => {
     const SpeechRecognition =
@@ -36,6 +115,11 @@ export default function VoicePage() {
       setVoiceState('error');
       return;
     }
+
+    closingRef.current = false;
+    ignoreNextEndRef.current = false;
+    clearTimeout(restartTimerRef.current);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
@@ -58,25 +142,44 @@ export default function VoicePage() {
     };
 
     recognition.onend = async () => {
+      if (ignoreNextEndRef.current) {
+        ignoreNextEndRef.current = false;
+        return;
+      }
+      if (closingRef.current) return;
+
       const final = finalTranscriptRef.current;
-      if (!final.trim()) { setVoiceState('idle'); return; }
+      if (!final.trim()) {
+        setVoiceState('idle');
+        queueNextListen(450);
+        return;
+      }
+
+      if (isStopCommand(final)) {
+        await speakThenMaybeListen('Okay, I will stop listening now.', 'done');
+        stopListening();
+        return;
+      }
 
       setVoiceState('processing');
       try {
         const r = await routeCommand(final);
         setResult(r);
-        setVoiceState('done');
+        await speakThenMaybeListen(String(r.user_visible_summary || 'Command received.'), 'done');
         // Refresh history after a new command
         api.getVoiceHistory()
           .then((data) => setHistory(data.slice(0, 5)))
           .catch(() => {});
       } catch {
         setErrorMsg('Failed to process command. Is the API running?');
-        setVoiceState('error');
+        await speakThenMaybeListen('I heard you, but I could not reach the API.', 'error');
       }
     };
 
     recognition.onerror = (e: any) => {
+      if (closingRef.current || e.error === 'aborted') return;
+      if (e.error === 'no-speech') return;
+      ignoreNextEndRef.current = true;
       setErrorMsg(`Recognition error: ${e.error}`);
       setVoiceState('error');
     };
@@ -86,7 +189,10 @@ export default function VoicePage() {
   };
 
   const stopListening = () => {
-    (recognitionRef.current as any)?.stop();
+    closingRef.current = true;
+    clearTimeout(restartTimerRef.current);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    (recognitionRef.current as any)?.abort?.();
     setVoiceState('idle');
   };
 
@@ -139,6 +245,7 @@ export default function VoicePage() {
     idle: 'Click to speak',
     listening: 'Listening… click to stop',
     processing: 'Processing…',
+    speaking: 'Speaking… click to stop',
     done: 'Done! Click to speak again',
     error: 'Error — click to retry',
   };
@@ -155,12 +262,14 @@ export default function VoicePage() {
       {/* Mic button */}
       <div className="flex flex-col items-center py-10">
         <button
-          onClick={voiceState === 'listening' ? stopListening : startListening}
+          onClick={voiceState === 'listening' || voiceState === 'speaking' ? stopListening : startListening}
           disabled={voiceState === 'processing'}
           className={clsx(
             'w-28 h-28 rounded-full flex items-center justify-center transition-all duration-200',
             voiceState === 'listening'
               ? 'bg-red-600 ring-8 ring-red-600/20 animate-pulse'
+              : voiceState === 'speaking'
+              ? 'bg-emerald-600 ring-8 ring-emerald-600/20 animate-pulse'
               : voiceState === 'processing'
               ? 'bg-indigo-700 opacity-70 cursor-not-allowed'
               : voiceState === 'error'
@@ -172,10 +281,45 @@ export default function VoicePage() {
             ? <MicOff className="w-12 h-12 text-white" />
             : voiceState === 'processing'
             ? <Loader2 className="w-12 h-12 text-white animate-spin" />
+            : voiceState === 'speaking'
+            ? <Volume2 className="w-12 h-12 text-white" />
             : <Mic className="w-12 h-12 text-white" />
           }
         </button>
         <p className="mt-4 text-sm text-slate-400">{buttonLabel[voiceState]}</p>
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            onClick={() => {
+              setVoiceReplies((enabled) => {
+                const next = !enabled;
+                if (!next && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+                return next;
+              });
+            }}
+            title={voiceReplies ? 'Voice replies on' : 'Voice replies off'}
+            className="w-9 h-9 rounded-full bg-[#1a2035] border border-[#1e2847] flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+          >
+            {voiceReplies ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+          <button
+            onClick={() => {
+              setContinuousMode((enabled) => {
+                const next = !enabled;
+                if (!next) clearTimeout(restartTimerRef.current);
+                return next;
+              });
+            }}
+            title={continuousMode ? 'Continuous conversation on' : 'Continuous conversation off'}
+            className={clsx(
+              'w-9 h-9 rounded-full border flex items-center justify-center transition-colors',
+              continuousMode
+                ? 'bg-emerald-950/60 border-emerald-800/50 text-emerald-300 hover:bg-emerald-900/60'
+                : 'bg-[#1a2035] border-[#1e2847] text-slate-400 hover:text-white',
+            )}
+          >
+            <RotateCw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Transcript */}
