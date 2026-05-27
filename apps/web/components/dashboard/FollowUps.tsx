@@ -2,14 +2,21 @@
 
 import { useStore } from '@/stores/useStore';
 import { Clock } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 export default function FollowUps() {
   const { tasks } = useStore();
+  const [today, setToday] = useState('');
+
+  useEffect(() => {
+    setToday(new Date().toISOString().slice(0, 10));
+  }, []);
+
   const waiting = tasks.filter((t) => t.status === 'waiting');
 
   const items = waiting.slice(0, 5).map((t) => ({
     title: t.title,
-    overdue: !!(t.due_date && t.due_date < new Date().toISOString().slice(0, 10)),
+    overdue: !!(today && t.due_date && t.due_date < today),
     label: t.due_date ?? 'No date',
   }));
 

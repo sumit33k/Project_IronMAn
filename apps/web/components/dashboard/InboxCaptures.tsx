@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Mail } from 'lucide-react';
 import { useStore } from '@/stores/useStore';
 
@@ -11,12 +11,11 @@ const PRIORITY_BADGE: Record<string, string> = {
   low:      'bg-slate-600',
 };
 
-function formatTime(iso: string): string {
-  if (!iso) return '';
+function formatTime(iso: string, now: number): string {
+  if (!iso || !now) return '';
   try {
     const d = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
+    const diffMs = now - d.getTime();
     const diffH = diffMs / (1000 * 60 * 60);
     if (diffH < 24) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -28,6 +27,9 @@ function formatTime(iso: string): string {
 export default function InboxCaptures() {
   const { inboxData } = useStore();
   const [tab, setTab] = useState('All');
+  const [now, setNow] = useState(0);
+
+  useEffect(() => { setNow(Date.now()); }, []);
 
   const connected = inboxData?.connected ?? false;
   const items = inboxData?.items ?? [];
@@ -90,7 +92,7 @@ export default function InboxCaptures() {
                     <p className="text-[10px] text-slate-500 truncate mt-0.5">{item.from}</p>
                   </div>
                   <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                    <span className="text-[10px] text-slate-500">{formatTime(item.received_at)}</span>
+                    <span className="text-[10px] text-slate-500">{formatTime(item.received_at, now)}</span>
                     <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold text-white ${PRIORITY_BADGE[item.priority ?? 'medium'] ?? 'bg-indigo-600'}`}>
                       {(item.priority ?? 'medium').toUpperCase()}
                     </span>
