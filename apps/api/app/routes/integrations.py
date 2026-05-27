@@ -199,9 +199,10 @@ def disconnect_integration(integration_type: str, db: Session = Depends(get_db))
     if not row:
         raise HTTPException(404, "Integration not found")
     row.status = "inactive"
-    row.config = None
+    row.config = "{}"
+    row.last_sync_at = None
     db.commit()
-    return {"status": "disconnected"}
+    return {"status": "disconnected", "integration_type": integration_type}
 
 
 async def _sync_gmail(access_token: str, db: Session) -> list:
