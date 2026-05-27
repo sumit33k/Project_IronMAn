@@ -21,8 +21,12 @@ export default function TodayPage() {
   const [newTitle, setNewTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [dateStr, setDateStr] = useState('');
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
+  useEffect(() => {
+    setDateStr(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
+  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,9 +63,7 @@ export default function TodayPage() {
         className="mb-6"
       >
         <h1 className="text-2xl font-bold text-white">Today Queue</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-        </p>
+        <p className="text-sm text-slate-500 mt-0.5" suppressHydrationWarning>{dateStr}</p>
         <p className="text-xs text-slate-700 mt-1">← Swipe left to defer · Swipe right to complete →</p>
       </motion.div>
 
