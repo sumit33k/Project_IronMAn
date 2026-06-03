@@ -4,9 +4,10 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Mic, MicOff, Loader2, CheckCircle, AlertCircle,
   Volume2, VolumeX, History, RotateCw, Phone, PhoneOff,
-  Wifi, WifiOff, Activity, Clock, MessageSquare, Zap,
+  Activity, Clock, MessageSquare, Zap, Settings, ChevronDown, ChevronUp,
+  Sparkles, Radio,
 } from 'lucide-react';
-import { api, type CommandExecution, type VoiceHistoryRecord, type VoiceSession, type ProvidersHealth } from '@/lib/api';
+import { api, type CommandExecution, type VoiceHistoryRecord, type VoiceSession, type ProvidersHealth, type VoiceProviderConfig } from '@/lib/api';
 import { clsx } from 'clsx';
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'done' | 'error';
@@ -43,6 +44,11 @@ export default function VoicePage() {
   const [health, setHealth] = useState<ProvidersHealth | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
 
+  // Voice config (barge-in + wake word settings)
+  const [voiceConfig, setVoiceConfig] = useState<VoiceProviderConfig | null>(null);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
   const recognitionRef = useRef<unknown>(null);
   const finalTranscriptRef = useRef('');
   const restartTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -53,6 +59,11 @@ export default function VoicePage() {
   const durationIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const sessionStartRef = useRef<number>(0);
   const turnStartRef = useRef<number>(0);
+
+  // Barge-in (Phase 7)
+  const bargeInEnabledRef = useRef(true); // ref so speak() closure reads current value without stale capture
+  const bargeInTextRef = useRef('');
+  const bargeInRecognitionRef = useRef<unknown>(null);
 
   const refreshHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -70,6 +81,9 @@ export default function VoicePage() {
     api.getVoiceSettings()
       .then((s) => { if (typeof s.tts_enabled === 'boolean') setVoiceReplies(s.tts_enabled); })
       .catch(() => {});
+    api.getVoiceConfig()
+      .then((cfg) => { setVoiceConfig(cfg); bargeInEnabledRef.current = cfg.reply_style?.barge_in_enabled ?? true; })
+      .catch(() => {});
     refreshHealth();
 
     return () => {
@@ -77,6 +91,7 @@ export default function VoicePage() {
       clearInterval(durationIntervalRef.current);
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
       (recognitionRef.current as any)?.abort?.();
+      (bargeInRecognitionRef.current as any)?.abort?.();
     };
   }, [refreshHealth]);
 
@@ -153,15 +168,41 @@ export default function VoicePage() {
 
   const speak = (text: string): Promise<boolean> => new Promise((resolve) => {
     if (!voiceReplies || !('speechSynthesis' in window) || !text.trim()) { resolve(false); return; }
+    bargeInTextRef.current = '';
+    (bargeInRecognitionRef.current as any)?.abort?.();
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.voice = chooseVoice();
     utterance.rate = 0.98;
     utterance.pitch = 0.96;
-    utterance.onend = () => resolve(true);
-    utterance.onerror = () => resolve(false);
+    utterance.onend = () => { (bargeInRecognitionRef.current as any)?.abort?.(); resolve(true); };
+    utterance.onerror = () => { (bargeInRecognitionRef.current as any)?.abort?.(); resolve(false); };
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
     window.speechSynthesis.resume();
+
+    // Phase 7: barge-in — listen in parallel while TTS plays
+    if (bargeInEnabledRef.current && !closingRef.current) {
+      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRec) {
+        const bi = new SpeechRec();
+        bi.continuous = false;
+        bi.interimResults = true;
+        bi.lang = 'en-US';
+        bi.onresult = (e: any) => {
+          const t = Array.from(e.results as any[]).map((r: any) => r[0].transcript).join('').trim();
+          if (t.length > 1) {
+            bargeInTextRef.current = t;
+            window.speechSynthesis.cancel(); // triggers utterance.onerror → resolve(false)
+            bi.abort();
+          }
+        };
+        bi.onerror = () => {};
+        bi.onend = () => {};
+        bargeInRecognitionRef.current = bi;
+        try { bi.start(); } catch { /* non-fatal if recognition already running */ }
+      }
+    }
   });
 
   const queueNextListen = (delay = 650) => {
@@ -183,6 +224,16 @@ export default function VoicePage() {
     if (voiceReplies && 'speechSynthesis' in window) {
       setVoiceState('speaking');
       await speak(message);
+      // Phase 7: if barge-in captured text during TTS, process it immediately
+      const bargeInText = bargeInTextRef.current;
+      if (bargeInText && !closingRef.current) {
+        bargeInTextRef.current = '';
+        setTranscript(bargeInText);
+        finalTranscriptRef.current = bargeInText;
+        turnStartRef.current = Date.now();
+        await processCommand(bargeInText);
+        return;
+      }
     }
     if (closingRef.current) return;
     if (nextState === 'done' && continuousMode) { queueNextListen(); return; }
@@ -407,13 +458,34 @@ export default function VoicePage() {
 
   const isCallActive = callState === 'active' || callState === 'connecting';
 
+  const patchConfig = async (patch: Partial<VoiceProviderConfig>) => {
+    setSavingConfig(true);
+    try {
+      const updated = await api.updateVoiceConfig(patch);
+      setVoiceConfig(updated);
+      bargeInEnabledRef.current = updated.reply_style?.barge_in_enabled ?? true;
+    } catch { /* non-fatal */ }
+    finally { setSavingConfig(false); }
+  };
+
   return (
     <div className="p-6 max-w-2xl">
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-white">Voice Interface</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Push-to-talk with real command execution. Say &ldquo;confirm&rdquo; or &ldquo;cancel&rdquo; for risky actions.
-        </p>
+      <div className="mb-5 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Voice Interface</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Push-to-talk with real command execution. Say &ldquo;confirm&rdquo; or &ldquo;cancel&rdquo; for risky actions.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowSettings((v) => !v)}
+          className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-white transition-colors mt-1"
+          title="Voice settings"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          Settings
+          {showSettings ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
       </div>
 
       {/* Provider health strip */}
@@ -649,6 +721,16 @@ export default function VoicePage() {
         </div>
       )}
 
+      {/* Phase 8: Settings panel */}
+      {showSettings && voiceConfig && (
+        <VoiceSettingsPanel
+          config={voiceConfig}
+          health={health}
+          saving={savingConfig}
+          onPatch={patchConfig}
+        />
+      )}
+
       {/* Recent voice command history */}
       <div className="glass-card p-4">
         <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
@@ -674,6 +756,158 @@ export default function VoicePage() {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Voice settings panel (Phase 8) ────────────────────────────────────────────
+
+function VoiceSettingsPanel({
+  config,
+  health,
+  saving,
+  onPatch,
+}: {
+  config: VoiceProviderConfig;
+  health: ProvidersHealth | null;
+  saving: boolean;
+  onPatch: (patch: Partial<VoiceProviderConfig>) => Promise<void>;
+}) {
+  const [phrase, setPhrase] = useState(config.wake_word?.phrase ?? 'hey jarvis');
+
+  const wakeWordOk = health?.wake_word?.status === 'available';
+  const bargeIn = config.reply_style?.barge_in_enabled ?? true;
+  const wakeEnabled = config.wake_word?.enabled ?? false;
+
+  return (
+    <div className="glass-card p-4 mb-5 space-y-4">
+      <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+        <Settings className="w-4 h-4 text-indigo-400" />
+        Voice Settings
+        {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500 ml-auto" />}
+      </h3>
+
+      {/* Barge-in toggle */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-medium text-white flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            Barge-in interruption
+          </p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            Speak while Jarvis is replying to interrupt and take over immediately.
+          </p>
+        </div>
+        <button
+          onClick={() => onPatch({ reply_style: { ...config.reply_style, barge_in_enabled: !bargeIn } })}
+          disabled={saving}
+          className={clsx(
+            'relative flex-shrink-0 w-10 h-5 rounded-full transition-colors duration-200',
+            bargeIn ? 'bg-indigo-600' : 'bg-slate-700',
+          )}
+        >
+          <span className={clsx(
+            'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200',
+            bargeIn ? 'translate-x-5' : 'translate-x-0',
+          )} />
+        </button>
+      </div>
+
+      <div className="border-t border-[#1e2847]" />
+
+      {/* Wake word toggle */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-medium text-white flex items-center gap-1.5">
+            <Radio className="w-3.5 h-3.5 text-indigo-400" />
+            Always-on wake word
+          </p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            Requires voice-agent running with openWakeWord (docker-compose up voice-agent).
+          </p>
+        </div>
+        <button
+          onClick={() => onPatch({ wake_word: { ...config.wake_word, enabled: !wakeEnabled } })}
+          disabled={saving}
+          className={clsx(
+            'relative flex-shrink-0 w-10 h-5 rounded-full transition-colors duration-200',
+            wakeEnabled ? 'bg-indigo-600' : 'bg-slate-700',
+          )}
+        >
+          <span className={clsx(
+            'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200',
+            wakeEnabled ? 'translate-x-5' : 'translate-x-0',
+          )} />
+        </button>
+      </div>
+
+      {/* Wake phrase + status */}
+      {wakeEnabled && (
+        <div className="space-y-2 ml-5">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+              onBlur={() => {
+                if (phrase.trim() && phrase !== config.wake_word?.phrase) {
+                  onPatch({ wake_word: { ...config.wake_word, phrase: phrase.trim() } });
+                }
+              }}
+              className="bg-[#0d0f14] border border-[#1e2847] rounded-lg px-3 py-1.5 text-xs text-white w-48 focus:outline-none focus:border-indigo-700"
+              placeholder="hey jarvis"
+            />
+            <span className={clsx(
+              'text-[10px] px-2 py-0.5 rounded-full font-medium',
+              wakeWordOk
+                ? 'bg-emerald-950/60 text-emerald-400'
+                : 'bg-amber-950/60 text-amber-400',
+            )}>
+              {wakeWordOk ? '✓ Detected' : 'Not running'}
+            </span>
+          </div>
+          {!wakeWordOk && (
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              Start the local voice stack: <code className="font-mono text-slate-400">docker compose -f infra/docker-compose.voice.yml up</code>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* STT provider info */}
+      <div className="border-t border-[#1e2847]" />
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-white">STT provider</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            {config.stt?.provider === 'browser'
+              ? 'Browser Web Speech API (Chrome/Edge only)'
+              : config.stt?.provider === 'whisper_cpp'
+              ? `whisper.cpp at ${config.stt?.base_url ?? 'http://localhost:8178'}`
+              : config.stt?.provider}
+          </p>
+        </div>
+        <span className="text-[10px] text-slate-400 font-mono px-2 py-0.5 bg-slate-800/60 rounded">
+          {config.stt?.provider ?? 'browser'}
+        </span>
+      </div>
+
+      {/* TTS provider info */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-white">TTS provider</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            {config.tts?.provider === 'browser'
+              ? 'Browser SpeechSynthesis (built-in)'
+              : config.tts?.provider === 'piper'
+              ? `Piper at ${config.tts?.base_url ?? 'http://localhost:5002'}`
+              : config.tts?.provider}
+          </p>
+        </div>
+        <span className="text-[10px] text-slate-400 font-mono px-2 py-0.5 bg-slate-800/60 rounded">
+          {config.tts?.provider ?? 'browser'}
+        </span>
       </div>
     </div>
   );
