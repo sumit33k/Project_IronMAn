@@ -7,7 +7,7 @@ import httpx
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import AppSettings, Command
-from app.services.command_router import CommandRouter
+from app.services.command_executor import CommandExecutor
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
@@ -16,7 +16,7 @@ VOICE_DEFAULTS = {
     "push_to_talk_enabled": True,
     "wake_word_enabled": False,
     "tts_enabled": True,
-    "stt_provider": "browser",  # options: "browser" | "groq" | "deepgram"
+    "stt_provider": "browser",  # browser | groq | deepgram
 }
 
 
@@ -38,7 +38,8 @@ class VoiceSettings(BaseModel):
 
 class VoiceCommand(BaseModel):
     transcript: str
-    auto_execute: bool = False
+    auto_execute: bool = True
+    voice_session_id: str | None = None
 
 
 def _load_voice_settings(db: Session) -> dict:
@@ -81,13 +82,22 @@ async def transcribe_audio(audio: UploadFile = File(...), db: Session = Depends(
 
     if provider == "groq":
         if not settings.groq_api_key:
-            raise HTTPException(status_code=400, detail="GROQ_API_KEY not configured. Add it to .env and set stt_provider=groq in voice settings.")
+            raise HTTPException(
+                status_code=400,
+                detail="GROQ_API_KEY not configured. Add it to .env and set stt_provider=groq.",
+            )
         audio_bytes = await audio.read()
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-                files={"file": (audio.filename or "audio.webm", audio_bytes, audio.content_type or "audio/webm")},
+                files={
+                    "file": (
+                        audio.filename or "audio.webm",
+                        audio_bytes,
+                        audio.content_type or "audio/webm",
+                    )
+                },
                 data={"model": "whisper-large-v3-turbo", "language": "en", "response_format": "json"},
             )
         if resp.status_code != 200:
@@ -95,9 +105,11 @@ async def transcribe_audio(audio: UploadFile = File(...), db: Session = Depends(
         return {"transcript": resp.json().get("text", ""), "confidence": 1.0, "provider": "groq"}
 
     if provider == "deepgram":
-        raise HTTPException(status_code=501, detail="Deepgram provider: set DEEPGRAM_API_KEY and update voice route.")
+        raise HTTPException(
+            status_code=501,
+            detail="Deepgram provider: set DEEPGRAM_API_KEY and update voice route.",
+        )
 
-    # Default: tell the frontend to use the browser Web Speech API
     return {
         "transcript": "",
         "confidence": 0.0,
@@ -107,30 +119,79 @@ async def transcribe_audio(audio: UploadFile = File(...), db: Session = Depends(
 
 
 @router.post("/process")
-async def process_voice_command(cmd: VoiceCommand):
-    db = SessionLocal()
+async def process_voice_command(cmd: VoiceCommand, db: Session = Depends(get_db)):
+    """Route and optionally execute a voice transcript.
+    Uses CommandExecutor so voice and text commands share the same lifecycle."""
+    executor = CommandExecutor()
     try:
-        router_svc = CommandRouter()
-        result = await router_svc.route(cmd.transcript)
-        result["transcript"] = cmd.transcript
-        result["auto_executed"] = False
-        return result
-    except Exception as e:
-        return {"error": str(e), "transcript": cmd.transcript}
-    finally:
-        db.close()
+        if cmd.auto_execute:
+            command = await executor.preview(
+                raw_input=cmd.transcript,
+                input_mode="voice",
+                context={},
+                db=db,
+                voice_session_id=cmd.voice_session_id,
+            )
+            if not command.requires_confirmation:
+                command = await executor.execute(command.id, db, confirmation_method="auto")
+        else:
+            command = await executor.preview(
+                raw_input=cmd.transcript,
+                input_mode="voice",
+                context={},
+                db=db,
+                voice_session_id=cmd.voice_session_id,
+            )
+
+        payload: dict = {}
+        try:
+            payload = json.loads(command.payload or "{}")
+        except Exception:
+            pass
+
+        exec_result = None
+        try:
+            if command.execution_result:
+                exec_result = json.loads(command.execution_result)
+        except Exception:
+            pass
+
+        return {
+            "command_id": command.id,
+            "transcript": cmd.transcript,
+            "intent": command.interpreted_intent or payload.get("intent"),
+            "confidence": payload.get("confidence", 0),
+            "requires_confirmation": command.requires_confirmation,
+            "confirmation_message": payload.get("confirmation_message"),
+            "user_visible_summary": payload.get("user_visible_summary", ""),
+            "status": command.status,
+            "execution_result": exec_result,
+            "auto_executed": command.status == "completed",
+            "target_agent": payload.get("target_agent"),
+            "task_id": payload.get("task_id") or command.target_resource_id,
+            "parameters": payload.get("parameters", {}),
+        }
+    except Exception as exc:
+        return {"error": str(exc), "transcript": cmd.transcript}
 
 
 @router.get("/history")
 def get_voice_history(limit: int = 20, db: Session = Depends(get_db)):
     commands = db.scalars(
-        select(Command).order_by(Command.created_at.desc()).limit(limit)
+        select(Command)
+        .where(Command.input_mode == "voice")
+        .order_by(Command.created_at.desc())
+        .limit(limit)
     ).all()
     return [
         {
             "id": c.id,
             "text": c.raw_input,
             "routing_result": json.loads(c.payload) if c.payload else {},
+            "status": c.status,
+            "execution_result": (
+                json.loads(c.execution_result) if c.execution_result else None
+            ),
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }
         for c in commands
