@@ -322,6 +322,12 @@ class CommandExecutor:
         if not agent:
             return {"status": "error", "message": f"Agent '{agent_id}' not found in registry."}
         try:
-            return await agent.execute(params, db)
+            run = await agent.execute(params, db)
+            return {
+                "status": run.status,
+                "run_id": run.id,
+                "output": json.loads(run.output_data) if run.output_data else {},
+                "error": run.error_message,
+            }
         except Exception as exc:
             return {"status": "error", "message": str(exc)}

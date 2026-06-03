@@ -1,0 +1,16 @@
+id: email_draft_agent
+name: Email Draft Agent
+version: "1.0"
+enabled: true
+risk_level: high
+description: Drafts email responses using local Ollama. Never sends — creates draft only.
+tools_allowed:
+  - gmail.draft
+requires_approval_for:
+  - draft_email
+confirmation_policy:
+  draft_email: required
+voice:
+  enabled: true
+  reply_style: short
+  max_reply_tokens: 60

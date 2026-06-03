@@ -1,0 +1,96 @@
+##
+## Project IronMan — Voice Production Stack (Phase 4)
+##
+## Usage:
+##   docker compose -f docker-compose.yml -f docker-compose.voice.yml up
+##
+## Prerequisites:
+##   - ./models/whisper/ggml-base.en.bin   (download from HuggingFace)
+##   - ./models/piper/en_US-lessac-medium.onnx + .json
+##
+## Model downloads:
+##   mkdir -p models/whisper models/piper
+##   curl -L -o models/whisper/ggml-base.en.bin \
+##     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+##   curl -L -o models/piper/en_US-lessac-medium.onnx \
+##     https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+##   curl -L -o models/piper/en_US-lessac-medium.onnx.json \
+##     https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+##
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50020:50000-50020/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit/livekit.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ironman
+
+  whisper-cpp:
+    image: ghcr.io/ggerganov/whisper.cpp:server
+    ports:
+      - "8178:8178"
+    volumes:
+      - ../models/whisper:/models:ro
+    command: -m /models/ggml-base.en.bin --host 0.0.0.0 --port 8178
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8178/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ironman
+
+  piper:
+    image: rhasspy/wyoming-piper:latest
+    ports:
+      - "5002:5002"
+    volumes:
+      - ../models/piper:/models:ro
+    command: --voice en_US-lessac-medium --data-dir /models --download-dir /models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ironman
+
+  voice-agent:
+    build:
+      context: ../apps/voice-agent
+      dockerfile: Dockerfile
+    environment:
+      - VOICE_LIVEKIT_URL=ws://livekit:7880
+      - VOICE_LIVEKIT_API_KEY=devkey
+      - VOICE_LIVEKIT_API_SECRET=secret
+      - VOICE_STT_PROVIDER=whisper_cpp
+      - VOICE_WHISPER_CPP_URL=http://whisper-cpp:8178
+      - VOICE_TTS_PROVIDER=piper
+      - VOICE_PIPER_URL=http://piper:5002
+      - VOICE_API_BASE_URL=http://api:8000
+    depends_on:
+      livekit:
+        condition: service_healthy
+      whisper-cpp:
+        condition: service_healthy
+      piper:
+        condition: service_healthy
+    command: voice-agent --transport livekit
+    networks:
+      - ironman
+
+networks:
+  ironman:
+    external: true
+    name: ironman_ironman

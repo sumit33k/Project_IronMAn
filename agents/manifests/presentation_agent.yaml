@@ -1,0 +1,14 @@
+id: presentation_agent
+name: Presentation Agent
+version: "1.0"
+enabled: true
+risk_level: high
+description: Generates presentation outlines and PowerPoint files via python-pptx.
+tools_allowed:
+  - filesystem.write
+requires_approval_for:
+  - create_presentation_outline
+confirmation_policy:
+  create_presentation_outline: required
+voice:
+  enabled: false

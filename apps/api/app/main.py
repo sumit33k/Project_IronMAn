@@ -24,6 +24,7 @@ from app.routes import notes as notes_router
 from app.routes import projects as projects_router
 from app.routes import routines as routines_router
 from app.routes import analytics as analytics_router
+from app.routes import voice_sessions as voice_sessions_router
 from app.seed import seed_integrations
 
 Base.metadata.create_all(bind=engine)
@@ -92,6 +93,7 @@ app.include_router(notes_router.router)
 app.include_router(projects_router.router)
 app.include_router(routines_router.router)
 app.include_router(analytics_router.router)
+app.include_router(voice_sessions_router.router)
 
 
 @app.get("/health")

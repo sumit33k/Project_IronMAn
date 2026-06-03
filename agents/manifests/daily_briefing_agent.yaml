@@ -1,0 +1,15 @@
+id: daily_briefing_agent
+name: Daily Briefing Agent
+version: "1.0"
+enabled: true
+risk_level: low
+description: Generates morning and end-of-day briefings from tasks and calendar.
+tools_allowed:
+  - tasks.read
+  - calendar.read
+requires_approval_for: []
+confirmation_policy: {}
+voice:
+  enabled: true
+  reply_style: short
+  max_reply_tokens: 100

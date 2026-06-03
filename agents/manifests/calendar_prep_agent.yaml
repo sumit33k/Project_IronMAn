@@ -1,0 +1,16 @@
+id: calendar_prep_agent
+name: Calendar Prep Agent
+version: "1.0"
+enabled: true
+risk_level: high
+description: Prepares meeting agendas and briefs from calendar events. Read-only.
+tools_allowed:
+  - calendar.read
+requires_approval_for:
+  - prepare_meeting
+confirmation_policy:
+  prepare_meeting: required
+voice:
+  enabled: true
+  reply_style: short
+  max_reply_tokens: 80

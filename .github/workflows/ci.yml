@@ -31,5 +31,42 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - run: python -m py_compile app/main.py
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Syntax check
+        run: python -m py_compile app/main.py
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+        env:
+          DATABASE_URL: "sqlite:///./test.db"
+
+  voice-agent:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/voice-agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install voice-agent deps
+        run: pip install httpx pydantic pydantic-settings
+      - name: Syntax check
+        run: |
+          python -m py_compile voice_agent/config.py
+          python -m py_compile voice_agent/command_client.py
+          python -m py_compile voice_agent/pipeline.py
+          python -m py_compile voice_agent/stt.py
+          python -m py_compile voice_agent/tts.py
+          python -m py_compile voice_agent/interruption.py
+          python -m py_compile voice_agent/main.py
+
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate core docker-compose
+        run: docker compose -f infra/docker-compose.yml config --quiet
+      - name: Validate voice docker-compose
+        run: docker compose -f infra/docker-compose.yml -f infra/docker-compose.voice.yml config --quiet
