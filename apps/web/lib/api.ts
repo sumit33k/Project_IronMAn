@@ -99,6 +99,27 @@ export const api = {
       .then(normalizeCommandResult),
   getCommandHistory: () => apiFetch<CommandRecord[]>('/commands/history'),
 
+  // Command execution (Phase 1)
+  previewCommand: (input: string, mode = 'text', context?: Record<string, unknown>, voiceSessionId?: string) =>
+    apiFetch<CommandExecution>('/commands/preview', {
+      method: 'POST',
+      body: JSON.stringify({ raw_input: input, input_mode: mode, context: context ?? {}, voice_session_id: voiceSessionId }),
+    }),
+  executeCommand: (input: string, mode = 'text', context?: Record<string, unknown>, voiceSessionId?: string) =>
+    apiFetch<CommandExecution>('/commands/execute', {
+      method: 'POST',
+      body: JSON.stringify({ raw_input: input, input_mode: mode, context: context ?? {}, voice_session_id: voiceSessionId }),
+    }),
+  confirmCommand: (commandId: string, confirmationMethod = 'button') =>
+    apiFetch<CommandExecution>(`/commands/${commandId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmation_method: confirmationMethod }),
+    }),
+  cancelCommand: (commandId: string) =>
+    apiFetch<CommandExecution>(`/commands/${commandId}/cancel`, { method: 'POST' }),
+  getCommandById: (commandId: string) =>
+    apiFetch<CommandExecution>(`/commands/${commandId}`),
+
   // Briefings
   getTodayBriefing: () => apiFetch<Briefing | null>('/briefings/today'),
   generateBriefing: (meetings: string[], followUps: string[]) =>
@@ -263,7 +284,42 @@ export interface CommandRecord {
   raw_input: string;
   interpreted_intent?: string;
   status: string;
+  execution_result?: Record<string, unknown>;
+  latency_ms?: number;
   created_at: string;
+}
+
+export interface CommandExecution {
+  id: string;
+  raw_input: string;
+  input_mode: string;
+  interpreted_intent?: string;
+  action_type?: string;
+  target_resource_type?: string;
+  target_resource_id?: string;
+  requires_confirmation: boolean;
+  /** routed | awaiting_confirmation | executing | completed | failed | cancelled | pending */
+  status: string;
+  execution_result?: Record<string, unknown>;
+  error_message?: string;
+  // flattened from payload for convenience
+  intent?: string;
+  confidence?: number;
+  user_visible_summary?: string;
+  confirmation_message?: string;
+  target_agent?: string;
+  task_id?: string;
+  parameters?: Record<string, unknown>;
+  // timing
+  confirmed_at?: string;
+  confirmation_method?: string;
+  executed_at?: string;
+  completed_at?: string;
+  latency_ms?: number;
+  voice_session_id?: string;
+  created_at: string;
+  // legacy alias
+  command_id?: string;
 }
 
 export interface Briefing {
