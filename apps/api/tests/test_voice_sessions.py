@@ -25,7 +25,6 @@ def test_create_voice_session():
     assert data["status"] == "created"
     assert data["stt_provider"] == "browser"
     assert data["turn_count"] == 0
-    return data["id"]
 
 
 def test_list_sessions_returns_list():
