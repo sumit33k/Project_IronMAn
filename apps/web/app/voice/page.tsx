@@ -875,39 +875,48 @@ function VoiceSettingsPanel({
         </div>
       )}
 
-      {/* STT provider info */}
+      {/* STT provider selector */}
       <div className="border-t border-[#1e2847]" />
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-xs font-medium text-white">STT provider</p>
           <p className="text-[10px] text-slate-500 mt-0.5">
-            {config.stt?.provider === 'browser'
-              ? 'Browser Web Speech API (Chrome/Edge only)'
-              : config.stt?.provider === 'whisper_cpp'
+            {config.stt?.provider === 'whisper_cpp'
               ? `whisper.cpp at ${config.stt?.base_url ?? 'http://localhost:8178'}`
-              : config.stt?.provider}
+              : 'Browser Web Speech API (Chrome/Edge only)'}
           </p>
         </div>
-        <span className="text-[10px] text-slate-400 font-mono px-2 py-0.5 bg-slate-800/60 rounded">
-          {config.stt?.provider ?? 'browser'}
-        </span>
+        <select
+          value={config.stt?.provider ?? 'browser'}
+          onChange={(e) => onPatch({ stt: { ...config.stt, provider: e.target.value } })}
+          disabled={saving}
+          className="bg-[#0d0f14] border border-[#1e2847] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-700 disabled:opacity-50"
+        >
+          <option value="browser">browser</option>
+          <option value="whisper_cpp">whisper_cpp</option>
+          <option value="groq">groq</option>
+        </select>
       </div>
 
-      {/* TTS provider info */}
-      <div className="flex items-center justify-between">
+      {/* TTS provider selector */}
+      <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-xs font-medium text-white">TTS provider</p>
           <p className="text-[10px] text-slate-500 mt-0.5">
-            {config.tts?.provider === 'browser'
-              ? 'Browser SpeechSynthesis (built-in)'
-              : config.tts?.provider === 'piper'
+            {config.tts?.provider === 'piper'
               ? `Piper at ${config.tts?.base_url ?? 'http://localhost:5002'}`
-              : config.tts?.provider}
+              : 'Browser SpeechSynthesis (built-in)'}
           </p>
         </div>
-        <span className="text-[10px] text-slate-400 font-mono px-2 py-0.5 bg-slate-800/60 rounded">
-          {config.tts?.provider ?? 'browser'}
-        </span>
+        <select
+          value={config.tts?.provider ?? 'browser'}
+          onChange={(e) => onPatch({ tts: { ...config.tts, provider: e.target.value } })}
+          disabled={saving}
+          className="bg-[#0d0f14] border border-[#1e2847] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-700 disabled:opacity-50"
+        >
+          <option value="browser">browser</option>
+          <option value="piper">piper</option>
+        </select>
       </div>
     </div>
   );

@@ -51,7 +51,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install voice-agent deps
-        run: pip install httpx pydantic pydantic-settings
+        run: pip install httpx pydantic pydantic-settings pytest pytest-asyncio
       - name: Syntax check
         run: |
           python -m py_compile voice_agent/config.py
@@ -60,7 +60,10 @@ jobs:
           python -m py_compile voice_agent/stt.py
           python -m py_compile voice_agent/tts.py
           python -m py_compile voice_agent/interruption.py
+          python -m py_compile voice_agent/wake_word.py
           python -m py_compile voice_agent/main.py
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
 
   infra:
     runs-on: ubuntu-latest
