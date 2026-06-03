@@ -193,6 +193,47 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class VoiceSession(Base):
+    __tablename__ = "voice_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    status: Mapped[str] = mapped_column(String(32), default="created")
+    stt_provider: Mapped[str] = mapped_column(String(64), default="browser")
+    tts_provider: Mapped[str] = mapped_column(String(64), default="browser")
+    transport_provider: Mapped[str] = mapped_column(String(64), default="browser")
+    turn_count: Mapped[int] = mapped_column(Integer, default=0)
+    command_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    turns: Mapped[list["VoiceTurn"]] = relationship(
+        "VoiceTurn", back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class VoiceTurn(Base):
+    __tablename__ = "voice_turns"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("voice_sessions.id"), nullable=False)
+    turn_number: Mapped[int] = mapped_column(Integer, default=0)
+    role: Mapped[str] = mapped_column(String(16), default="user")  # user | assistant
+    transcript: Mapped[str] = mapped_column(Text, nullable=True)
+    partial_transcript: Mapped[str] = mapped_column(Text, nullable=True)
+    command_id: Mapped[str] = mapped_column(String(36), ForeignKey("commands.id"), nullable=True)
+    stt_latency_ms: Mapped[int] = mapped_column(Integer, nullable=True)
+    llm_latency_ms: Mapped[int] = mapped_column(Integer, nullable=True)
+    tts_latency_ms: Mapped[int] = mapped_column(Integer, nullable=True)
+    total_latency_ms: Mapped[int] = mapped_column(Integer, nullable=True)
+    interrupted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    session: Mapped["VoiceSession"] = relationship("VoiceSession", back_populates="turns")
+
+
 class Routine(Base):
     __tablename__ = "routines"
 

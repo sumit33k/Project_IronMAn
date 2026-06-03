@@ -1,17 +1,32 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Loader2, CheckCircle, AlertCircle, Volume2, VolumeX, History, RotateCw } from 'lucide-react';
-import { api, type CommandExecution, type VoiceHistoryRecord } from '@/lib/api';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  Mic, MicOff, Loader2, CheckCircle, AlertCircle,
+  Volume2, VolumeX, History, RotateCw, Phone, PhoneOff,
+  Wifi, WifiOff, Activity, Clock, MessageSquare, Zap,
+} from 'lucide-react';
+import { api, type CommandExecution, type VoiceHistoryRecord, type VoiceSession, type ProvidersHealth } from '@/lib/api';
 import { clsx } from 'clsx';
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking' | 'done' | 'error';
+type CallState = 'inactive' | 'connecting' | 'active' | 'ending';
 
 const CONFIRM_WORDS = ['yes', 'confirm', 'execute', 'execute it', 'do it', 'go ahead', 'proceed'];
 const CANCEL_WORDS = ['cancel', 'no', 'stop', 'nevermind', 'never mind', 'abort'];
 
+interface LocalTurn {
+  id: string;
+  role: 'user' | 'assistant';
+  transcript: string;
+  latency_ms?: number;
+  status?: 'completed' | 'failed' | 'awaiting_confirmation';
+  intent?: string;
+}
+
 export default function VoicePage() {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [callState, setCallState] = useState<CallState>('inactive');
   const [transcript, setTranscript] = useState('');
   const [execution, setExecution] = useState<CommandExecution | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -19,34 +34,112 @@ export default function VoicePage() {
   const [voiceReplies, setVoiceReplies] = useState(true);
   const [continuousMode, setContinuousMode] = useState(true);
 
+  // Session state
+  const [session, setSession] = useState<VoiceSession | null>(null);
+  const [sessionDuration, setSessionDuration] = useState(0);
+  const [localTurns, setLocalTurns] = useState<LocalTurn[]>([]);
+
+  // Provider health
+  const [health, setHealth] = useState<ProvidersHealth | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+
   const recognitionRef = useRef<unknown>(null);
   const finalTranscriptRef = useRef('');
   const restartTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const ignoreNextEndRef = useRef(false);
   const closingRef = useRef(false);
-  // Track pending command awaiting voice confirmation
   const pendingCommandRef = useRef<CommandExecution | null>(null);
+  const sessionRef = useRef<VoiceSession | null>(null);
+  const durationIntervalRef = useRef<ReturnType<typeof setInterval>>();
+  const sessionStartRef = useRef<number>(0);
+  const turnStartRef = useRef<number>(0);
+
+  const refreshHealth = useCallback(async () => {
+    setHealthLoading(true);
+    try {
+      const h = await api.getProvidersHealth();
+      setHealth(h);
+    } catch { /* non-fatal */ }
+    finally { setHealthLoading(false); }
+  }, []);
 
   useEffect(() => {
     api.getVoiceHistory()
-      .then((data) => setHistory(data.slice(0, 5)))
+      .then((data) => setHistory(data.slice(0, 8)))
       .catch(() => {});
-
     api.getVoiceSettings()
       .then((s) => { if (typeof s.tts_enabled === 'boolean') setVoiceReplies(s.tts_enabled); })
       .catch(() => {});
+    refreshHealth();
 
     return () => {
       clearTimeout(restartTimerRef.current);
+      clearInterval(durationIntervalRef.current);
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
       (recognitionRef.current as any)?.abort?.();
     };
-  }, []);
+  }, [refreshHealth]);
 
-  // Keep ref in sync with state so recognition handlers can read it
   useEffect(() => {
     pendingCommandRef.current = execution?.status === 'awaiting_confirmation' ? execution : null;
   }, [execution]);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  // ── Session lifecycle ──────────────────────────────────────────────────────
+
+  const startSession = async (): Promise<VoiceSession | null> => {
+    try {
+      const s = await api.createVoiceSession({ stt: 'browser', tts: 'browser', transport: 'browser' });
+      setSession(s);
+      setLocalTurns([]);
+      sessionStartRef.current = Date.now();
+      durationIntervalRef.current = setInterval(() => {
+        setSessionDuration(Math.floor((Date.now() - sessionStartRef.current) / 1000));
+      }, 1000);
+      return s;
+    } catch {
+      return null;
+    }
+  };
+
+  const endSession = async () => {
+    clearInterval(durationIntervalRef.current);
+    setSessionDuration(0);
+    const s = sessionRef.current;
+    if (s) {
+      try { await api.endVoiceSession(s.id); } catch { /* best-effort */ }
+    }
+    setSession(null);
+    setLocalTurns([]);
+  };
+
+  const logTurn = async (role: 'user' | 'assistant', text: string, latencyMs?: number, cmdId?: string) => {
+    const s = sessionRef.current;
+    if (!s) return;
+    const localId = `${role}-${Date.now()}`;
+    setLocalTurns((prev: LocalTurn[]) => [...prev, {
+      id: localId,
+      role,
+      transcript: text,
+      latency_ms: latencyMs,
+    }]);
+    try {
+      await api.addVoiceTurn(s.id, {
+        role,
+        transcript: text,
+        ...(latencyMs ? { stt_latency_ms: latencyMs } : {}),
+        ...(cmdId ? { command_id: cmdId } : {}),
+      });
+      // Refresh session counters
+      const updated = await api.getVoiceSession(s.id);
+      setSession(updated);
+    } catch { /* non-fatal */ }
+  };
+
+  // ── Speech helpers ──────────────────────────────────────────────────────────
 
   const chooseVoice = (): SpeechSynthesisVoice | null => {
     if (!('speechSynthesis' in window)) return null;
@@ -98,24 +191,46 @@ export default function VoicePage() {
 
   const refreshHistory = () => {
     api.getVoiceHistory()
-      .then((data) => setHistory(data.slice(0, 5)))
+      .then((data) => setHistory(data.slice(0, 8)))
       .catch(() => {});
   };
 
+  // ── Command processing ──────────────────────────────────────────────────────
+
   const processCommand = async (text: string) => {
+    const sttLatency = turnStartRef.current ? Date.now() - turnStartRef.current : undefined;
     setVoiceState('processing');
+    const s = sessionRef.current;
     try {
-      const result = await api.executeCommand(text, 'voice');
+      const t0 = Date.now();
+      const result = await api.executeCommand(text, 'voice', {}, s?.id ?? undefined);
+      const totalLatency = Date.now() - t0;
       setExecution(result);
+
+      // Log user turn
+      await logTurn('user', text, sttLatency, result.id);
 
       if (result.status === 'awaiting_confirmation') {
         const msg = result.confirmation_message || result.user_visible_summary || 'Confirm?';
+        await logTurn('assistant', msg);
         await speakThenMaybeListen(msg, 'done');
       } else {
         const msg = executionSpeechText(result);
+        await logTurn('assistant', msg);
+        // Patch local turn with status + intent
+        setLocalTurns((prev: LocalTurn[]) => prev.map((t: LocalTurn, i: number) =>
+          i === prev.length - 1
+            ? { ...t, status: result.status as LocalTurn['status'], intent: result.intent || result.interpreted_intent }
+            : t
+        ));
         await speakThenMaybeListen(msg, 'done');
         refreshHistory();
       }
+
+      // Annotate the last assistant turn with latency
+      setLocalTurns((prev: LocalTurn[]) => prev.map((t: LocalTurn, i: number) =>
+        i === prev.length - 1 ? { ...t, latency_ms: totalLatency } : t
+      ));
     } catch {
       setErrorMsg('Failed to process command. Is the API running?');
       await speakThenMaybeListen('I heard you but could not reach the API.', 'error');
@@ -130,6 +245,7 @@ export default function VoicePage() {
       const result = await api.confirmCommand(pending.id, method);
       setExecution(result);
       const msg = executionSpeechText(result);
+      await logTurn('assistant', `[${method} confirm] ${msg}`);
       await speakThenMaybeListen(msg, 'done');
       refreshHistory();
     } catch {
@@ -145,12 +261,15 @@ export default function VoicePage() {
     }
     setExecution(null);
     if (method === 'voice') {
+      await logTurn('assistant', 'Cancelled.');
       await speakThenMaybeListen('Cancelled.', 'done');
     } else {
       setTranscript('');
       setVoiceState('idle');
     }
   };
+
+  // ── Mic / call controls ─────────────────────────────────────────────────────
 
   const startListening = () => {
     const SpeechRecognition =
@@ -176,6 +295,7 @@ export default function VoicePage() {
     setTranscript('');
     setErrorMsg('');
     finalTranscriptRef.current = '';
+    turnStartRef.current = Date.now();
 
     recognition.onresult = (e: any) => {
       const t = Array.from(e.results as any[]).map((r: any) => r[0].transcript).join('');
@@ -192,11 +312,10 @@ export default function VoicePage() {
 
       if (isStopCommand(final)) {
         await speakThenMaybeListen('Okay, stopping.', 'done');
-        stopListening();
+        stopCall();
         return;
       }
 
-      // If a command is awaiting confirmation, check for voice confirm/cancel
       const pending = pendingCommandRef.current;
       if (pending) {
         const lower = final.toLowerCase();
@@ -208,7 +327,6 @@ export default function VoicePage() {
           await handleVoiceCancel('voice');
           return;
         }
-        // New command — auto-cancel the pending one silently then process
         try { await api.cancelCommand(pending.id); } catch { /* best-effort */ }
         setExecution(null);
       }
@@ -236,13 +354,36 @@ export default function VoicePage() {
     setVoiceState('idle');
   };
 
-  const buttonLabel: Record<VoiceState, string> = {
-    idle: 'Click to speak',
-    listening: 'Listening… click to stop',
-    processing: 'Processing…',
-    speaking: 'Speaking… click to stop',
-    done: 'Done! Click to speak again',
-    error: 'Error — click to retry',
+  const startCall = async () => {
+    setCallState('connecting');
+    setErrorMsg('');
+    setExecution(null);
+    const s = await startSession();
+    if (!s) {
+      setCallState('inactive');
+      setErrorMsg('Could not create voice session.');
+      return;
+    }
+    setCallState('active');
+    startListening();
+  };
+
+  const stopCall = async () => {
+    setCallState('ending');
+    stopListening();
+    await endSession();
+    setCallState('inactive');
+    setVoiceState('idle');
+    setExecution(null);
+    setTranscript('');
+  };
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  const formatDuration = (secs: number): string => {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+    const s = (secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
   };
 
   const parseIntent = (routingResult: unknown): string => {
@@ -264,175 +405,251 @@ export default function VoicePage() {
     catch { return iso; }
   };
 
+  const isCallActive = callState === 'active' || callState === 'connecting';
+
   return (
     <div className="p-6 max-w-2xl">
-      <div className="mb-6">
+      <div className="mb-5">
         <h1 className="text-2xl font-bold text-white">Voice Interface</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Push-to-talk with real command execution. Say &quot;confirm&quot; or &quot;cancel&quot; for risky actions.
+          Push-to-talk with real command execution. Say &ldquo;confirm&rdquo; or &ldquo;cancel&rdquo; for risky actions.
         </p>
       </div>
 
-      {/* Mic button */}
-      <div className="flex flex-col items-center py-10">
-        <button
-          onClick={voiceState === 'listening' || voiceState === 'speaking' ? stopListening : startListening}
-          disabled={voiceState === 'processing'}
-          className={clsx(
-            'w-28 h-28 rounded-full flex items-center justify-center transition-all duration-200',
-            voiceState === 'listening'
-              ? 'bg-red-600 ring-8 ring-red-600/20 animate-pulse'
-              : voiceState === 'speaking'
-              ? 'bg-emerald-600 ring-8 ring-emerald-600/20 animate-pulse'
-              : voiceState === 'processing'
-              ? 'bg-indigo-700 opacity-70 cursor-not-allowed'
-              : voiceState === 'error'
-              ? 'bg-red-900 hover:bg-red-800 ring-4 ring-red-900/30'
-              : 'bg-indigo-600 hover:bg-indigo-500 ring-4 ring-indigo-600/20 hover:ring-indigo-600/40',
-          )}
-        >
-          {voiceState === 'listening'
-            ? <MicOff className="w-12 h-12 text-white" />
-            : voiceState === 'processing'
-            ? <Loader2 className="w-12 h-12 text-white animate-spin" />
-            : voiceState === 'speaking'
-            ? <Volume2 className="w-12 h-12 text-white" />
-            : <Mic className="w-12 h-12 text-white" />
-          }
-        </button>
-        <p className="mt-4 text-sm text-slate-400">{buttonLabel[voiceState]}</p>
-        <div className="mt-4 flex items-center gap-2">
-          <button
-            onClick={() => setVoiceReplies((v) => { if (v && 'speechSynthesis' in window) window.speechSynthesis.cancel(); return !v; })}
-            title={voiceReplies ? 'Voice replies on' : 'Voice replies off'}
-            className="w-9 h-9 rounded-full bg-[#1a2035] border border-[#1e2847] flex items-center justify-center text-slate-400 hover:text-white transition-colors"
-          >
-            {voiceReplies ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-          </button>
-          <button
-            onClick={() => setContinuousMode((v) => { if (v) clearTimeout(restartTimerRef.current); return !v; })}
-            title={continuousMode ? 'Continuous on' : 'Continuous off'}
-            className={clsx(
-              'w-9 h-9 rounded-full border flex items-center justify-center transition-colors',
-              continuousMode
-                ? 'bg-emerald-950/60 border-emerald-800/50 text-emerald-300 hover:bg-emerald-900/60'
-                : 'bg-[#1a2035] border-[#1e2847] text-slate-400 hover:text-white',
-            )}
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      {/* Provider health strip */}
+      <ProviderHealthStrip health={health} loading={healthLoading} onRefresh={refreshHealth} />
 
-      {/* Transcript */}
-      {transcript && (
-        <div className="glass-card p-4 mb-4">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">You said</p>
-          <p className="text-sm text-white italic">&quot;{transcript}&quot;</p>
-        </div>
-      )}
-
-      {/* Execution result */}
-      {execution && (
-        <div className={clsx(
-          'glass-card p-4 mb-4',
-          execution.status === 'awaiting_confirmation' ? 'border-amber-800/40' :
-          execution.status === 'failed' ? 'border-red-800/40' :
-          'border-emerald-800/40'
-        )}>
-          <div className="flex items-center gap-2 mb-2">
-            {execution.status === 'awaiting_confirmation'
-              ? <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-              : execution.status === 'failed'
-              ? <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-              : <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-            }
-            <p className="text-xs font-medium text-white">
-              Intent: <span className="text-indigo-400 font-mono">{execution.intent || execution.interpreted_intent}</span>
-            </p>
-            <span className="ml-auto text-[10px] text-slate-500">
-              {execution.status}
-              {execution.latency_ms ? ` · ${execution.latency_ms}ms` : ''}
+      {/* Call card */}
+      <div className={clsx(
+        'glass-card p-5 mb-5 transition-all',
+        isCallActive ? 'border-indigo-700/50' : '',
+      )}>
+        {/* Session info row */}
+        {session && (
+          <div className="flex items-center gap-3 mb-4 pb-3 border-b border-[#1e2847]">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[10px] text-slate-400 font-mono truncate flex-1">
+              session {session.id.slice(0, 8)}…
             </span>
+            <div className="flex items-center gap-3 text-[10px] text-slate-500">
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {formatDuration(sessionDuration)}
+              </span>
+              <span className="flex items-center gap-1">
+                <MessageSquare className="w-3 h-3" />
+                {session.turn_count} turns
+              </span>
+              <span className="flex items-center gap-1">
+                <Zap className="w-3 h-3" />
+                {session.command_count} cmds
+              </span>
+            </div>
           </div>
+        )}
 
-          <p className="text-sm text-slate-200">
-            {execution.status === 'awaiting_confirmation'
-              ? (execution.confirmation_message || execution.user_visible_summary)
-              : executionSummary(execution)}
+        {/* Mic / call button */}
+        <div className="flex flex-col items-center py-6">
+          {!isCallActive ? (
+            <button
+              onClick={startCall}
+              disabled={callState === 'ending'}
+              className="w-24 h-24 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 ring-4 ring-indigo-600/20 hover:ring-indigo-600/40 flex items-center justify-center transition-all duration-200"
+            >
+              {callState === 'ending'
+                ? <Loader2 className="w-10 h-10 text-white animate-spin" />
+                : <Phone className="w-10 h-10 text-white" />
+              }
+            </button>
+          ) : (
+            <div className="flex items-center gap-6">
+              {/* Mic toggle */}
+              <button
+                onClick={voiceState === 'listening' || voiceState === 'speaking' ? stopListening : startListening}
+                disabled={voiceState === 'processing'}
+                className={clsx(
+                  'w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200',
+                  voiceState === 'listening'
+                    ? 'bg-red-600 ring-8 ring-red-600/20 animate-pulse'
+                    : voiceState === 'speaking'
+                    ? 'bg-emerald-600 ring-8 ring-emerald-600/20 animate-pulse'
+                    : voiceState === 'processing'
+                    ? 'bg-indigo-700 opacity-70 cursor-not-allowed'
+                    : voiceState === 'error'
+                    ? 'bg-red-900 hover:bg-red-800 ring-4 ring-red-900/30'
+                    : 'bg-indigo-600 hover:bg-indigo-500 ring-4 ring-indigo-600/20',
+                )}
+              >
+                {voiceState === 'listening'
+                  ? <MicOff className="w-9 h-9 text-white" />
+                  : voiceState === 'processing'
+                  ? <Loader2 className="w-9 h-9 text-white animate-spin" />
+                  : voiceState === 'speaking'
+                  ? <Volume2 className="w-9 h-9 text-white" />
+                  : <Mic className="w-9 h-9 text-white" />
+                }
+              </button>
+
+              {/* Hang up */}
+              <button
+                onClick={stopCall}
+                className="w-14 h-14 rounded-full bg-red-600/80 hover:bg-red-600 ring-4 ring-red-600/20 flex items-center justify-center transition-all duration-200"
+                title="End session"
+              >
+                <PhoneOff className="w-6 h-6 text-white" />
+              </button>
+            </div>
+          )}
+
+          <p className="mt-4 text-sm text-slate-400">
+            {callState === 'inactive' && 'Start a voice session'}
+            {callState === 'connecting' && 'Starting session…'}
+            {callState === 'ending' && 'Ending session…'}
+            {callState === 'active' && {
+              idle: 'Tap mic to speak',
+              listening: 'Listening… tap to stop',
+              processing: 'Processing…',
+              speaking: 'Speaking… tap to stop',
+              done: 'Done — tap mic to speak again',
+              error: 'Error — tap to retry',
+            }[voiceState]}
           </p>
 
-          {execution.status === 'awaiting_confirmation' && (
-            <div className="mt-3 flex gap-2 items-center">
+          {/* Controls row */}
+          {isCallActive && (
+            <div className="mt-3 flex items-center gap-2">
               <button
-                onClick={() => handleVoiceConfirm('button')}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs text-white font-medium transition-colors"
+                onClick={() => setVoiceReplies((v) => { if (v && 'speechSynthesis' in window) window.speechSynthesis.cancel(); return !v; })}
+                title={voiceReplies ? 'Voice replies on' : 'Voice replies off'}
+                className="w-8 h-8 rounded-full bg-[#1a2035] border border-[#1e2847] flex items-center justify-center text-slate-400 hover:text-white transition-colors"
               >
-                Confirm
+                {voiceReplies ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
               </button>
               <button
-                onClick={() => handleVoiceCancel('button')}
-                className="px-3 py-1.5 bg-[#1a2035] hover:bg-[#1e2847] rounded-lg text-xs text-slate-300 transition-colors"
+                onClick={() => setContinuousMode((v) => { if (v) clearTimeout(restartTimerRef.current); return !v; })}
+                title={continuousMode ? 'Continuous mode on' : 'Continuous mode off'}
+                className={clsx(
+                  'w-8 h-8 rounded-full border flex items-center justify-center transition-colors',
+                  continuousMode
+                    ? 'bg-emerald-950/60 border-emerald-800/50 text-emerald-300 hover:bg-emerald-900/60'
+                    : 'bg-[#1a2035] border-[#1e2847] text-slate-400 hover:text-white',
+                )}
               >
-                Cancel
+                <RotateCw className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[10px] text-slate-500 ml-1">or say &quot;confirm&quot; / &quot;cancel&quot;</span>
-            </div>
-          )}
-
-          {execution.status === 'completed' && execution.execution_result && (
-            <div className="mt-2 text-[10px] text-emerald-500 font-mono">
-              {JSON.stringify(execution.execution_result).slice(0, 120)}
             </div>
           )}
         </div>
-      )}
 
-      {/* Error */}
-      {errorMsg && (
-        <div className="glass-card p-3 border-red-900/40 mb-4">
-          <p className="text-xs text-red-400">{errorMsg}</p>
-        </div>
-      )}
+        {/* Live transcript */}
+        {transcript && (
+          <div className="bg-[#0d0f14] rounded-lg px-3 py-2 mb-3">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Transcript</p>
+            <p className="text-sm text-white italic">&ldquo;{transcript}&rdquo;</p>
+          </div>
+        )}
 
-      {/* STT status */}
-      <div className="glass-card p-4 mb-4">
-        <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-          <Volume2 className="w-4 h-4 text-indigo-400" />
-          Speech Stack
-        </h3>
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-white">Push-to-talk (Browser API)</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Uses browser SpeechRecognition</p>
+        {/* Execution card */}
+        {execution && (
+          <div className={clsx(
+            'rounded-lg p-3 border',
+            execution.status === 'awaiting_confirmation' ? 'bg-amber-950/20 border-amber-800/40' :
+            execution.status === 'failed' ? 'bg-red-950/20 border-red-800/40' :
+            'bg-emerald-950/20 border-emerald-800/40'
+          )}>
+            <div className="flex items-center gap-2 mb-1.5">
+              {execution.status === 'awaiting_confirmation'
+                ? <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                : execution.status === 'failed'
+                ? <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                : <CheckCircle className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+              }
+              <span className="text-[10px] text-indigo-400 font-mono">
+                {execution.intent || execution.interpreted_intent}
+              </span>
+              <span className="ml-auto text-[10px] text-slate-500">
+                {execution.status}
+                {execution.latency_ms ? ` · ${execution.latency_ms}ms` : ''}
+              </span>
             </div>
-            <span className="text-[10px] px-2 py-0.5 bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 rounded-full font-medium">
-              ✓ Active
-            </span>
+
+            <p className="text-xs text-slate-200 leading-relaxed">
+              {execution.status === 'awaiting_confirmation'
+                ? (execution.confirmation_message || execution.user_visible_summary)
+                : executionSummary(execution)}
+            </p>
+
+            {execution.status === 'awaiting_confirmation' && (
+              <div className="mt-2.5 flex gap-2 items-center">
+                <button
+                  onClick={() => handleVoiceConfirm('button')}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs text-white font-medium transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => handleVoiceCancel('button')}
+                  className="px-3 py-1.5 bg-[#1a2035] hover:bg-[#1e2847] rounded-lg text-xs text-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <span className="text-[10px] text-slate-500 ml-1">or say &ldquo;confirm&rdquo; / &ldquo;cancel&rdquo;</span>
+              </div>
+            )}
+
+            {execution.status === 'completed' && execution.execution_result && (
+              <div className="mt-1.5 text-[10px] text-emerald-500 font-mono truncate">
+                {JSON.stringify(execution.execution_result).slice(0, 120)}
+              </div>
+            )}
           </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-white">Always-on &quot;Hey Jarvis&quot;</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Local wake word (openWakeWord)</p>
-            </div>
-            <span className="text-[10px] px-2 py-0.5 bg-indigo-950/60 text-indigo-400 border border-indigo-800/40 rounded-full font-medium">
-              Phase 8 — Planned
-            </span>
+        )}
+
+        {/* Error */}
+        {errorMsg && (
+          <div className="mt-3 rounded-lg p-2.5 border border-red-900/40 bg-red-950/20">
+            <p className="text-xs text-red-400">{errorMsg}</p>
           </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-white">Local STT (whisper.cpp)</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Offline speech-to-text</p>
-            </div>
-            <span className="text-[10px] px-2 py-0.5 bg-purple-950/60 text-purple-400 border border-purple-800/40 rounded-full font-medium">
-              Phase 4 — Planned
-            </span>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Recent Voice Commands */}
+      {/* Session turn history */}
+      {localTurns.length > 0 && (
+        <div className="glass-card p-4 mb-5">
+          <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-indigo-400" />
+            Session Turns
+          </h3>
+          <div className="space-y-2 max-h-56 overflow-y-auto">
+            {localTurns.map((turn) => (
+              <div key={turn.id} className="flex items-start gap-2.5 text-xs">
+                <span className={clsx(
+                  'text-[9px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 mt-0.5',
+                  turn.role === 'user'
+                    ? 'bg-indigo-950/60 text-indigo-400'
+                    : 'bg-slate-800/60 text-slate-400',
+                )}>
+                  {turn.role}
+                </span>
+                <span className="text-slate-300 flex-1 leading-relaxed">{turn.transcript}</span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {turn.intent && (
+                    <span className="text-[9px] text-indigo-400/70 font-mono">{turn.intent}</span>
+                  )}
+                  {turn.latency_ms && (
+                    <span className="text-[9px] text-slate-600">{turn.latency_ms}ms</span>
+                  )}
+                  {turn.status === 'completed' && <CheckCircle className="w-3 h-3 text-emerald-400" />}
+                  {turn.status === 'failed' && <AlertCircle className="w-3 h-3 text-red-400" />}
+                  {turn.status === 'awaiting_confirmation' && <AlertCircle className="w-3 h-3 text-amber-400" />}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent voice command history */}
       <div className="glass-card p-4">
         <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
           <History className="w-4 h-4 text-indigo-400" />
@@ -445,7 +662,7 @@ export default function VoicePage() {
             {history.map((entry) => (
               <div key={entry.id} className="flex items-start justify-between gap-3 py-2 border-b border-[#1e2847] last:border-0">
                 <div className="min-w-0">
-                  <p className="text-xs text-white truncate">&quot;{entry.text}&quot;</p>
+                  <p className="text-xs text-white truncate">&ldquo;{entry.text}&rdquo;</p>
                   <p className="text-[10px] text-indigo-400 font-mono mt-0.5">
                     {parseIntent(entry.routing_result)}
                   </p>
@@ -462,14 +679,86 @@ export default function VoicePage() {
   );
 }
 
+// ── Provider health strip ──────────────────────────────────────────────────────
+
+function ProviderHealthStrip({
+  health,
+  loading,
+  onRefresh,
+}: {
+  health: ProvidersHealth | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  type ProviderKey = Exclude<keyof ProvidersHealth, 'overall'>;
+  const providers: { key: ProviderKey; label: string }[] = [
+    { key: 'browser_stt', label: 'Browser STT' },
+    { key: 'whisper_cpp', label: 'Whisper' },
+    { key: 'piper', label: 'Piper TTS' },
+    { key: 'ollama', label: 'Ollama' },
+    { key: 'livekit', label: 'LiveKit' },
+    { key: 'wake_word', label: 'Wake Word' },
+  ];
+
+  return (
+    <div className="glass-card px-4 py-3 mb-5 flex items-center gap-3 flex-wrap">
+      <span className="text-[10px] text-slate-500 uppercase tracking-wider mr-1">Providers</span>
+      {providers.map(({ key, label }) => {
+        const p = health?.[key];
+        const status = p?.status ?? (loading ? 'checking' : 'unknown');
+        return (
+          <ProviderDot key={key} label={label} status={status} />
+        );
+      })}
+      {health && (
+        <span className={clsx(
+          'ml-auto text-[10px] px-2 py-0.5 rounded-full font-medium',
+          health.overall === 'ok' ? 'bg-emerald-950/60 text-emerald-400' :
+          health.overall === 'degraded' ? 'bg-amber-950/60 text-amber-400' :
+          'bg-red-950/60 text-red-400',
+        )}>
+          {health.overall}
+        </span>
+      )}
+      <button
+        onClick={onRefresh}
+        disabled={loading}
+        className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-white transition-colors disabled:opacity-40"
+        title="Refresh provider health"
+      >
+        {loading
+          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          : <RotateCw className="w-3.5 h-3.5" />
+        }
+      </button>
+    </div>
+  );
+}
+
+function ProviderDot({ label, status }: { label: string; status: string }) {
+  return (
+    <div className="flex items-center gap-1.5" title={`${label}: ${status}`}>
+      <span className={clsx('w-1.5 h-1.5 rounded-full', {
+        'bg-emerald-400': status === 'available',
+        'bg-red-400': status === 'unavailable' || status === 'error',
+        'bg-amber-400 animate-pulse': status === 'checking',
+        'bg-slate-600': status === 'unknown' || status === 'disabled',
+      })} />
+      <span className="text-[9px] text-slate-500">{label}</span>
+    </div>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function executionSpeechText(result: CommandExecution): string {
   if (result.status === 'failed') return result.error_message || 'Command failed.';
   if (result.status === 'completed') {
     const r = result.execution_result;
     if (r?.title) return `Done. Created task: ${r.title}`;
-    if (r?.status === 'completed') return `Task marked as complete.`;
-    if (r?.status === 'deferred') return `Task deferred.`;
-    if (r?.status === 'waiting') return `Task marked as waiting.`;
+    if (r?.status === 'completed') return 'Task marked as complete.';
+    if (r?.status === 'deferred') return 'Task deferred.';
+    if (r?.status === 'waiting') return 'Task marked as waiting.';
     if (r?.count !== undefined) return `Found ${r.count} tasks for today.`;
     return result.user_visible_summary || 'Done.';
   }
@@ -482,7 +771,7 @@ function executionSummary(result: CommandExecution): string {
     const r = result.execution_result;
     if (r?.title) return `Created: "${r.title}"`;
     if (r?.status === 'completed') return `Completed: "${r.title}"`;
-    if (r?.status === 'deferred') return `Deferred task`;
+    if (r?.status === 'deferred') return 'Deferred task';
     if (r?.count !== undefined) return `${r.count} tasks today`;
     return result.user_visible_summary || 'Done.';
   }

@@ -88,10 +88,43 @@ export const api = {
   delegateTask: (id: string, agentId: string) => apiFetch<Task>(`/tasks/${id}/delegate?agent_id=${agentId}`, { method: 'POST' }),
 
   // Agents
-  getAgents: () => apiFetch<Agent[]>('/agents'),
+  getAgents: () => apiFetch<AgentInfo[]>('/agents'),
   runAgent: (agentId: string, input: Record<string, unknown>, taskId?: string) =>
     apiFetch<AgentRun>(`/agents/${agentId}/run${taskId ? `?task_id=${taskId}` : ''}`, { method: 'POST', body: JSON.stringify(input) }),
   getAgentRuns: () => apiFetch<AgentRun[]>('/agents/runs/all'),
+  getAgent: (agentId: string) => apiFetch<AgentInfo>(`/agents/${agentId}`),
+  getAgentManifest: (agentId: string) => apiFetch<Record<string, unknown>>(`/agents/${agentId}/manifest`),
+  listManifests: () => apiFetch<Record<string, unknown>[]>('/agents/manifests'),
+  syncManifests: () => apiFetch<{ synced: string[]; skipped: unknown[] }>('/agents/manifests/sync', { method: 'POST' }),
+  toggleAgent: (agentId: string, enabled: boolean) =>
+    apiFetch<{ id: string; enabled: boolean; name: string }>(`/agents/${agentId}/enabled`, {
+      method: 'PATCH', body: JSON.stringify({ enabled }),
+    }),
+
+  // Voice sessions (Phase 5)
+  createVoiceSession: (providers?: { stt?: string; tts?: string; transport?: string }) =>
+    apiFetch<VoiceSession>('/voice/sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        stt_provider: providers?.stt ?? 'browser',
+        tts_provider: providers?.tts ?? 'browser',
+        transport_provider: providers?.transport ?? 'browser',
+      }),
+    }),
+  getVoiceSession: (id: string) => apiFetch<VoiceSession>('/voice/sessions/' + id),
+  updateVoiceSession: (id: string, data: { status?: string; error_message?: string }) =>
+    apiFetch<VoiceSession>(`/voice/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  endVoiceSession: (id: string) => apiFetch<{ id: string; status: string }>(`/voice/sessions/${id}`, { method: 'DELETE' }),
+  addVoiceTurn: (sessionId: string, turn: VoiceTurnInput) =>
+    apiFetch<VoiceTurnRecord>(`/voice/sessions/${sessionId}/turns`, { method: 'POST', body: JSON.stringify(turn) }),
+  listVoiceSessions: () => apiFetch<VoiceSession[]>('/voice/sessions'),
+
+  // Voice provider config (Phase 3)
+  getVoiceConfig: () => apiFetch<VoiceProviderConfig>('/voice/config'),
+  updateVoiceConfig: (patch: Partial<VoiceProviderConfig>) =>
+    apiFetch<VoiceProviderConfig>('/voice/config', { method: 'PATCH', body: JSON.stringify(patch) }),
+  getProvidersHealth: () => apiFetch<ProvidersHealth>('/voice/providers/health'),
+  validateProviders: () => apiFetch<ProviderValidationResult>('/voice/providers/validate', { method: 'POST' }),
 
   // Commands
   routeCommand: (input: string, mode = 'text') =>
@@ -235,6 +268,84 @@ export interface Agent {
   description: string;
   risk_level: string;
   requires_approval_for: string[];
+}
+
+export interface AgentInfo extends Agent {
+  enabled: boolean;
+  has_manifest: boolean;
+  manifest_version?: string;
+  tools_allowed: string[];
+  voice_enabled: boolean;
+}
+
+export interface VoiceSession {
+  id: string;
+  status: string;
+  stt_provider: string;
+  tts_provider: string;
+  transport_provider: string;
+  turn_count: number;
+  command_count: number;
+  error_message?: string;
+  started_at?: string;
+  ended_at?: string;
+  created_at: string;
+  turns?: VoiceTurnRecord[];
+}
+
+export interface VoiceTurnInput {
+  role?: string;
+  transcript?: string;
+  partial_transcript?: string;
+  command_id?: string;
+  stt_latency_ms?: number;
+  llm_latency_ms?: number;
+  tts_latency_ms?: number;
+  total_latency_ms?: number;
+  interrupted?: boolean;
+}
+
+export interface VoiceTurnRecord extends VoiceTurnInput {
+  id: string;
+  session_id: string;
+  turn_number: number;
+  created_at: string;
+  completed_at?: string;
+}
+
+export interface ProviderStatus {
+  name: string;
+  status: 'available' | 'unavailable' | 'disabled' | 'unconfigured';
+  message?: string;
+  url?: string;
+}
+
+export interface ProvidersHealth {
+  livekit: ProviderStatus;
+  whisper_cpp: ProviderStatus;
+  piper: ProviderStatus;
+  ollama: ProviderStatus;
+  browser_stt: ProviderStatus;
+  wake_word: ProviderStatus;
+  overall: 'ok' | 'degraded' | 'minimal';
+}
+
+export interface ProviderValidationResult {
+  overall: string;
+  providers: ProvidersHealth;
+  issues: string[];
+  ready_for_production: boolean;
+}
+
+export interface VoiceProviderConfig {
+  transport: { provider: string; enabled: boolean; base_url?: string };
+  stt: { provider: string; base_url?: string };
+  tts: { provider: string; base_url?: string; voice?: string };
+  vad: { provider: string };
+  turn_detection: { provider: string; fallback: string; min_silence_ms: number; endpoint_delay_ms: number };
+  wake_word: { provider: string; enabled: boolean; phrase: string };
+  llm: { provider: string; model: string; base_url?: string };
+  reply_style: { max_tokens: number; voice_first: boolean; barge_in_enabled: boolean };
 }
 
 export interface AgentRun {

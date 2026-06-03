@@ -1,0 +1,17 @@
+id: orchestrator_agent
+name: Orchestrator Agent
+version: "1.0"
+enabled: true
+risk_level: high
+description: Routes complex multi-step tasks to specialist agents. Always requires confirmation.
+tools_allowed:
+  - agents.run
+requires_approval_for:
+  - delegate_task
+  - multi_step_action
+confirmation_policy:
+  delegate_task: required
+voice:
+  enabled: true
+  reply_style: short
+  max_reply_tokens: 60

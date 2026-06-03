@@ -7,16 +7,23 @@ import httpx
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import AppSettings, Command
+from app.schemas.voice_config import VoiceConfig
+from app.services.voice import config_store
+from app.services.voice.health import check_providers
 from app.services.command_executor import CommandExecutor
 
 router = APIRouter(prefix="/voice", tags=["voice"])
+
+# ---------------------------------------------------------------------------
+# Legacy simple settings (kept for backward compat with voice page toggles)
+# ---------------------------------------------------------------------------
 
 VOICE_DEFAULTS = {
     "wake_phrase": "hey jarvis",
     "push_to_talk_enabled": True,
     "wake_word_enabled": False,
     "tts_enabled": True,
-    "stt_provider": "browser",  # browser | groq | deepgram
+    "stt_provider": "browser",
 }
 
 
@@ -75,6 +82,65 @@ def update_voice_settings(payload: dict, db: Session = Depends(get_db)):
     return validated.model_dump()
 
 
+# ---------------------------------------------------------------------------
+# Phase 3: Voice provider registry
+# ---------------------------------------------------------------------------
+
+@router.get("/config")
+def get_voice_config(db: Session = Depends(get_db)):
+    """Get the structured voice provider configuration."""
+    return config_store.load(db).model_dump()
+
+
+@router.patch("/config")
+def update_voice_config(payload: dict, db: Session = Depends(get_db)):
+    """Merge partial config updates into the stored voice configuration."""
+    current = config_store.load(db)
+    # Deep-merge payload into current config
+    current_dict = current.model_dump()
+    _deep_merge(current_dict, payload)
+    try:
+        updated = VoiceConfig.model_validate(current_dict)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    config_store.save(updated, db)
+    return updated.model_dump()
+
+
+@router.get("/providers/health")
+async def providers_health(db: Session = Depends(get_db)):
+    """Check availability of all configured voice providers."""
+    config = config_store.load(db)
+    health = await check_providers(config)
+    return health.model_dump()
+
+
+@router.post("/providers/validate")
+async def validate_providers(db: Session = Depends(get_db)):
+    """Run health checks and return actionable setup guidance."""
+    config = config_store.load(db)
+    health = await check_providers(config)
+    issues = []
+    if health.ollama.status != "available":
+        issues.append("Ollama is not running. Start it with: ollama serve")
+    if config.stt.provider == "whisper_cpp" and health.whisper_cpp.status != "available":
+        issues.append(f"whisper.cpp not reachable at {health.whisper_cpp.url}")
+    if config.tts.provider == "piper" and health.piper.status != "available":
+        issues.append(f"Piper TTS not reachable at {health.piper.url}")
+    if config.transport.enabled and health.livekit.status != "available":
+        issues.append(f"LiveKit not reachable at {health.livekit.url}")
+    return {
+        "overall": health.overall,
+        "providers": health.model_dump(),
+        "issues": issues,
+        "ready_for_production": health.overall == "ok" and len(issues) == 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Transcription
+# ---------------------------------------------------------------------------
+
 @router.post("/transcribe")
 async def transcribe_audio(audio: UploadFile = File(...), db: Session = Depends(get_db)):
     voice_settings = _load_voice_settings(db)
@@ -110,18 +176,36 @@ async def transcribe_audio(audio: UploadFile = File(...), db: Session = Depends(
             detail="Deepgram provider: set DEEPGRAM_API_KEY and update voice route.",
         )
 
+    # Check whisper_cpp via config
+    config = config_store.load(db)
+    if config.stt.provider == "whisper_cpp" and config.stt.base_url:
+        audio_bytes = await audio.read()
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{config.stt.base_url}/inference",
+                    files={"file": (audio.filename or "audio.webm", audio_bytes)},
+                )
+            if resp.status_code == 200:
+                return {"transcript": resp.json().get("text", ""), "confidence": 1.0, "provider": "whisper_cpp"}
+        except Exception:
+            pass
+
     return {
         "transcript": "",
         "confidence": 0.0,
         "provider": "browser",
-        "note": "Set stt_provider=groq in voice settings for server-side transcription.",
+        "note": "Set stt_provider=groq or configure whisper_cpp in /voice/config.",
     }
 
 
+# ---------------------------------------------------------------------------
+# Process (uses CommandExecutor)
+# ---------------------------------------------------------------------------
+
 @router.post("/process")
 async def process_voice_command(cmd: VoiceCommand, db: Session = Depends(get_db)):
-    """Route and optionally execute a voice transcript.
-    Uses CommandExecutor so voice and text commands share the same lifecycle."""
+    """Route and optionally execute a voice transcript through CommandExecutor."""
     executor = CommandExecutor()
     try:
         if cmd.auto_execute:
@@ -175,6 +259,10 @@ async def process_voice_command(cmd: VoiceCommand, db: Session = Depends(get_db)
         return {"error": str(exc), "transcript": cmd.transcript}
 
 
+# ---------------------------------------------------------------------------
+# Voice history
+# ---------------------------------------------------------------------------
+
 @router.get("/history")
 def get_voice_history(limit: int = 20, db: Session = Depends(get_db)):
     commands = db.scalars(
@@ -196,3 +284,15 @@ def get_voice_history(limit: int = 20, db: Session = Depends(get_db)):
         }
         for c in commands
     ]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _deep_merge(base: dict, override: dict) -> None:
+    for key, value in override.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value

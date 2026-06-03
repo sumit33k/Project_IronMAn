@@ -1,0 +1,13 @@
+id: task_classifier
+name: Task Classifier
+version: "1.0"
+enabled: true
+risk_level: low
+description: Classifies and routes incoming tasks to the right priority and category.
+tools_allowed: []
+requires_approval_for: []
+confirmation_policy: {}
+voice:
+  enabled: true
+  reply_style: short
+  max_reply_tokens: 40

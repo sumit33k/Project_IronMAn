@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "ironman-voice-agent"
+version = "0.1.0"
+description = "Local realtime voice agent for Project IronMan (LiveKit + whisper.cpp + Piper)"
+requires-python = ">=3.11"
+
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0",
+    # LiveKit Agent SDK — install when LiveKit infra is ready
+    # "livekit-agents[openai,silero]>=0.11",
+    # Local STT/TTS clients
+    # "openai-whisper",            # or use whisper.cpp HTTP server
+    # "piper-tts",                 # or use Piper HTTP server
+    # Wake word
+    # "openwakeword>=0.6",
+]
+
+[project.optional-dependencies]
+livekit = [
+    "livekit-agents>=0.11",
+    "livekit-plugins-silero>=0.7",
+]
+wake-word = [
+    "openwakeword>=0.6",
+]
+
+[project.scripts]
+voice-agent = "voice_agent.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
