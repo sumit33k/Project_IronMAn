@@ -1,21 +1,28 @@
 ##
-## Project IronMan — Voice Production Stack (Phase 4)
+## Project IronMan — Voice Production Stack
 ##
 ## Usage:
-##   docker compose -f docker-compose.yml -f docker-compose.voice.yml up
+##   docker compose -f infra/docker-compose.yml -f infra/docker-compose.voice.yml up
 ##
-## Prerequisites:
-##   - ./models/whisper/ggml-base.en.bin   (download from HuggingFace)
-##   - ./models/piper/en_US-lessac-medium.onnx + .json
-##
-## Model downloads:
+## Quick start (from repo root):
 ##   mkdir -p models/whisper models/piper
+##
+##   # Whisper model (~150 MB)
 ##   curl -L -o models/whisper/ggml-base.en.bin \
 ##     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+##
+##   # Piper voice model (~60 MB)
 ##   curl -L -o models/piper/en_US-lessac-medium.onnx \
-##     https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+##     "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
 ##   curl -L -o models/piper/en_US-lessac-medium.onnx.json \
-##     https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+##     "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+##
+## Services exposed:
+##   whisper-cpp  http://localhost:8178  POST /inference  (STT)
+##   piper        http://localhost:5002  POST /api/tts    (TTS)
+##   openwakeword TCP  localhost:10400               (wake word)
+##   livekit      http://localhost:7880               (transport)
+##   voice-agent  (internal — connects to all of the above)
 ##
 
 services:
@@ -44,22 +51,42 @@ services:
       - ../models/whisper:/models:ro
     command: -m /models/ggml-base.en.bin --host 0.0.0.0 --port 8178
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8178/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8178/health"]
       interval: 15s
       timeout: 5s
       retries: 5
     networks:
       - ironman
 
+  # HTTP wrapper around the piper binary — exposes POST /api/tts
+  # Build: docker compose -f infra/docker-compose.voice.yml build piper
   piper:
-    image: rhasspy/wyoming-piper:latest
+    build:
+      context: ./piper-http
+      dockerfile: Dockerfile
     ports:
       - "5002:5002"
     volumes:
       - ../models/piper:/models:ro
-    command: --voice en_US-lessac-medium --data-dir /models --download-dir /models
+    environment:
+      - PIPER_VOICE=en_US-lessac-medium
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:5002/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ironman
+
+  # openWakeWord — always-on "hey jarvis" detector
+  # Wyoming protocol on TCP 10400; health checked via TCP connect in API
+  openwakeword:
+    image: rhasspy/wyoming-openwakeword:latest
+    ports:
+      - "10400:10400"
+    command: --preload-model hey_jarvis --debug
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c 'echo > /dev/tcp/localhost/10400' 2>/dev/null && echo ok"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -79,12 +106,16 @@ services:
       - VOICE_TTS_PROVIDER=piper
       - VOICE_PIPER_URL=http://piper:5002
       - VOICE_API_BASE_URL=http://api:8000
+      - VOICE_WAKE_WORD_ENABLED=true
+      - VOICE_WAKE_WORD_PHRASE=hey jarvis
     depends_on:
       livekit:
         condition: service_healthy
       whisper-cpp:
         condition: service_healthy
       piper:
+        condition: service_healthy
+      openwakeword:
         condition: service_healthy
     command: voice-agent --transport livekit
     networks:
