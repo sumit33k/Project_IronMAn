@@ -1,51 +1,37 @@
 ##
-## Project IronMan — Voice Production Stack
+## Project IronMan — Voice Stack
 ##
-## Usage:
-##   docker compose -f infra/docker-compose.yml -f infra/docker-compose.voice.yml up
+## Default services (no profile needed):
+##   whisper-cpp   http://localhost:8178  POST /asr   (STT)
+##   piper         http://localhost:5002  POST /api/tts (TTS)
+##   openwakeword  TCP  localhost:10400              (wake word)
+##
+## Optional LiveKit transport (add --profile livekit):
+##   livekit       http://localhost:7880
+##   voice-agent   (connects livekit + whisper + piper)
 ##
 ## Quick start (from repo root):
+##   docker compose -f infra/docker-compose.voice.yml up -d
+##
+## With LiveKit:
+##   docker compose -f infra/docker-compose.voice.yml --profile livekit up -d
+##
+## Piper voice model (~60 MB) — download once, mounted read-only:
 ##   mkdir -p models/piper
-##
-##   # Whisper model is downloaded automatically by the container on first start
-##   # and cached in the whisper_cache Docker volume (~150 MB).
-##
-##   # Piper voice model (~60 MB)
 ##   curl -L -o models/piper/en_US-lessac-medium.onnx \
 ##     "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
 ##   curl -L -o models/piper/en_US-lessac-medium.onnx.json \
 ##     "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
 ##
-## Services exposed:
-##   whisper-cpp  http://localhost:8178  POST /asr        (STT — openai-whisper-asr-webservice on internal :9000)
-##   piper        http://localhost:5002  POST /api/tts    (TTS)
-##   openwakeword TCP  localhost:10400               (wake word)
-##   livekit      http://localhost:7880               (transport)
-##   voice-agent  (internal — connects to all of the above)
+## Whisper model (~150 MB) is downloaded automatically on first container start
+## and cached in the whisper_cache Docker volume.
 ##
 
 services:
-  livekit:
-    image: livekit/livekit-server:latest
-    command: --config /etc/livekit/livekit.yaml
-    ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "50000-50020:50000-50020/udp"
-    volumes:
-      - ./livekit.yaml:/etc/livekit/livekit.yaml:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - ironman
 
-  # onerahmet/openai-whisper-asr-webservice — maintained Whisper HTTP API
-  # Endpoint: POST /asr?encode=true&task=transcribe&language=en&output=json
-  # Model is downloaded on first start and cached in the whisper_cache volume.
-  # To pre-seed a model: docker compose ... run --rm whisper-cpp true
+  # ── STT ────────────────────────────────────────────────────────────────────
+  # onerahmet/openai-whisper-asr-webservice: POST /asr with audio_file field
+  # Model downloads automatically on first start (~150 MB) into whisper_cache.
   whisper-cpp:
     image: onerahmet/openai-whisper-asr-webservice:latest
     ports:
@@ -60,11 +46,13 @@ services:
       interval: 15s
       timeout: 10s
       retries: 8
+    restart: unless-stopped
     networks:
       - ironman
 
-  # HTTP wrapper around the piper binary — exposes POST /api/tts
-  # Build: docker compose -f infra/docker-compose.voice.yml build piper
+  # ── TTS ────────────────────────────────────────────────────────────────────
+  # Custom piper HTTP wrapper: POST /api/tts  returns audio/wav
+  # Requires models/piper/en_US-lessac-medium.onnx (see header comment).
   piper:
     build:
       context: ./piper-http
@@ -80,11 +68,12 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - ironman
 
-  # openWakeWord — always-on "hey jarvis" detector
-  # Wyoming protocol on TCP 10400; health checked via TCP connect in API
+  # ── Wake word ──────────────────────────────────────────────────────────────
+  # Wyoming TCP protocol on :10400; health-checked via TCP connect in the API.
   openwakeword:
     image: rhasspy/wyoming-openwakeword:latest
     ports:
@@ -95,10 +84,32 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - ironman
 
+  # ── LiveKit transport (optional — add --profile livekit to enable) ─────────
+  livekit:
+    profiles: [livekit]
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50010:50000-50010/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit/livekit.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ironman
+
+  # ── Voice agent (optional — requires livekit profile) ─────────────────────
   voice-agent:
+    profiles: [livekit]
     build:
       context: ../apps/voice-agent
       dockerfile: Dockerfile
@@ -132,4 +143,4 @@ networks:
     name: ironman_ironman
 
 volumes:
-  whisper_cache:    # persists downloaded Whisper model between restarts
+  whisper_cache:

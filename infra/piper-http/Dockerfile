@@ -3,8 +3,8 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y wget ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN pip install fastapi uvicorn python-multipart --no-cache-dir
 
-# Install piper binary + shared libraries
-ARG PIPER_VERSION=v1.2.0
+# Install piper binary + shared libraries (date-based release tag, not semver)
+ARG PIPER_VERSION=2023.11.14-2
 RUN wget -q -O /tmp/piper.tar.gz \
       "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_x86_64.tar.gz" \
     && mkdir -p /opt/piper \

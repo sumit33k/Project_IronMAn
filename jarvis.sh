@@ -150,10 +150,12 @@ cmd_voice() {
   # Create the shared network if it doesn't exist yet
   docker network inspect ironman_ironman &>/dev/null \
     || docker network create ironman_ironman &>/dev/null || true
-  if docker compose -f "$compose" up -d --remove-orphans 2>&1; then
-    ok "Voice services up. Health: http://localhost:${API_PORT}/voice/providers/health"
+  if docker compose -f "$compose" up -d 2>&1; then
+    ok "Voice services up (whisper :8178, piper :5002, openwakeword :10400)"
+    ok "Health: http://localhost:${API_PORT}/voice/providers/health"
   else
     warn "Voice Docker stack failed to start — app will fall back to browser STT/TTS."
+    warn "Check: docker compose -f infra/docker-compose.voice.yml logs"
   fi
 }
 
