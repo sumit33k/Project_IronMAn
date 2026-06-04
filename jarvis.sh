@@ -2,14 +2,15 @@
 # jarvis.sh — quick-start shortcut for Project IronMan (local dev)
 #
 # Usage:
-#   ./jarvis.sh              start API + frontend (default)
-#   ./jarvis.sh start        start API + frontend
+#   ./jarvis.sh              start API + frontend + voice Docker (default)
+#   ./jarvis.sh start        start API + frontend + voice Docker
 #   ./jarvis.sh stop         kill running instances
 #   ./jarvis.sh restart      stop then start
 #   ./jarvis.sh logs         tail API and frontend logs side-by-side
 #   ./jarvis.sh status       show whether API / frontend are up
-#   ./jarvis.sh voice        also start the voice infra (Docker Compose)
+#   ./jarvis.sh voice        start only the voice Docker infra
 #   ./jarvis.sh --no-browser skip opening the browser on start
+#   ./jarvis.sh --no-voice   skip Docker voice infra (browser STT/TTS fallback)
 #
 # First-time setup?  Run ./start.sh instead — it installs deps + migrates.
 
@@ -40,7 +41,7 @@ WEB_LOG="/tmp/jarvis-web.log"
 API_PORT="${API_PORT:-8000}"
 WEB_PORT="${WEB_PORT:-3005}"
 OPEN_BROWSER=true
-WITH_VOICE=false
+WITH_VOICE=true   # voice Docker (whisper + piper) starts by default; --no-voice to skip
 
 # ── Parse args ────────────────────────────────────────────────
 COMMAND="start"
@@ -48,6 +49,8 @@ for arg in "$@"; do
   case "$arg" in
     start|stop|restart|logs|status|voice) COMMAND="$arg" ;;
     --no-browser) OPEN_BROWSER=false ;;
+    --voice)      WITH_VOICE=true ;;
+    --no-voice)   WITH_VOICE=false ;;
     --help|-h)
       sed -n '/^# Usage/,/^$/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -137,11 +140,21 @@ cmd_logs() {
 # ── voice (Docker Compose) ────────────────────────────────────
 cmd_voice() {
   local compose="$REPO_ROOT/infra/docker-compose.voice.yml"
-  [[ -f "$compose" ]] || die "Voice compose file not found: $compose"
-  command -v docker &>/dev/null || die "Docker not installed."
-  info "Starting voice infra (Piper TTS + openWakeWord)..."
-  docker compose -f "$compose" up -d
-  ok "Voice services up. Check health at http://localhost:8000/voice/providers/health"
+  if [[ ! -f "$compose" ]]; then
+    warn "Voice compose file not found: $compose — skipping voice infra."; return
+  fi
+  if ! command -v docker &>/dev/null; then
+    warn "Docker not installed — skipping voice infra. Install Docker to enable local STT/TTS."; return
+  fi
+  info "Starting voice infra (whisper STT + Piper TTS + openWakeWord)..."
+  # Create the shared network if it doesn't exist yet
+  docker network inspect ironman_ironman &>/dev/null \
+    || docker network create ironman_ironman &>/dev/null || true
+  if docker compose -f "$compose" up -d --remove-orphans 2>&1; then
+    ok "Voice services up. Health: http://localhost:${API_PORT}/voice/providers/health"
+  else
+    warn "Voice Docker stack failed to start — app will fall back to browser STT/TTS."
+  fi
 }
 
 # ── start ─────────────────────────────────────────────────────
