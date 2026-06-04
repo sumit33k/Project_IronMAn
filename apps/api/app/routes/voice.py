@@ -179,18 +179,20 @@ async def transcribe_audio(audio: UploadFile = File(...), db: Session = Depends(
             detail="Deepgram provider: set DEEPGRAM_API_KEY and update voice route.",
         )
 
-    # Check whisper_cpp via config
+    # Check whisper_cpp via config (uses onerahmet/openai-whisper-asr-webservice)
     config = config_store.load(db)
     if config.stt.provider == "whisper_cpp" and config.stt.base_url:
         audio_bytes = await audio.read()
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=60) as client:
                 resp = await client.post(
-                    f"{config.stt.base_url}/inference",
-                    files={"file": (audio.filename or "audio.webm", audio_bytes)},
+                    f"{config.stt.base_url}/asr",
+                    params={"encode": "true", "task": "transcribe", "language": "en", "output": "json"},
+                    files={"audio_file": (audio.filename or "audio.webm", audio_bytes, audio.content_type or "audio/webm")},
                 )
             if resp.status_code == 200:
-                return {"transcript": resp.json().get("text", ""), "confidence": 1.0, "provider": "whisper_cpp"}
+                text = resp.json().get("text", "").strip()
+                return {"transcript": text, "confidence": 1.0, "provider": "whisper_cpp"}
         except Exception:
             pass
 
