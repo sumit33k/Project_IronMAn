@@ -26,7 +26,7 @@ VOICE_DEFAULTS = {
     "push_to_talk_enabled": True,
     "wake_word_enabled": False,
     "tts_enabled": True,
-    "stt_provider": "browser",
+    "stt_provider": "whisper_cpp",
 }
 
 

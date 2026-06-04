@@ -9,13 +9,13 @@ class TransportConfig(BaseModel):
 
 
 class STTConfig(BaseModel):
-    provider: str = "browser"  # browser | whisper_cpp | groq | deepgram
-    base_url: Optional[str] = None
+    provider: str = "whisper_cpp"  # whisper_cpp | browser | groq | deepgram
+    base_url: Optional[str] = "http://localhost:8178"
 
 
 class TTSConfig(BaseModel):
-    provider: str = "browser"  # browser | piper
-    base_url: Optional[str] = None
+    provider: str = "piper"  # piper | browser
+    base_url: Optional[str] = "http://localhost:5002"
     voice: str = "en_US-lessac-medium"
 
 
