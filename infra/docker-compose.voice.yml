@@ -5,11 +5,10 @@
 ##   docker compose -f infra/docker-compose.yml -f infra/docker-compose.voice.yml up
 ##
 ## Quick start (from repo root):
-##   mkdir -p models/whisper models/piper
+##   mkdir -p models/piper
 ##
-##   # Whisper model (~150 MB)
-##   curl -L -o models/whisper/ggml-base.en.bin \
-##     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+##   # Whisper model is downloaded automatically by the container on first start
+##   # and cached in the whisper_cache Docker volume (~150 MB).
 ##
 ##   # Piper voice model (~60 MB)
 ##   curl -L -o models/piper/en_US-lessac-medium.onnx \
@@ -18,7 +17,7 @@
 ##     "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
 ##
 ## Services exposed:
-##   whisper-cpp  http://localhost:8178  POST /inference  (STT)
+##   whisper-cpp  http://localhost:8178  POST /asr        (STT — openai-whisper-asr-webservice on internal :9000)
 ##   piper        http://localhost:5002  POST /api/tts    (TTS)
 ##   openwakeword TCP  localhost:10400               (wake word)
 ##   livekit      http://localhost:7880               (transport)
@@ -43,18 +42,24 @@ services:
     networks:
       - ironman
 
+  # onerahmet/openai-whisper-asr-webservice — maintained Whisper HTTP API
+  # Endpoint: POST /asr?encode=true&task=transcribe&language=en&output=json
+  # Model is downloaded on first start and cached in the whisper_cache volume.
+  # To pre-seed a model: docker compose ... run --rm whisper-cpp true
   whisper-cpp:
-    image: ghcr.io/ggerganov/whisper.cpp:server
+    image: onerahmet/openai-whisper-asr-webservice:latest
     ports:
-      - "8178:8178"
+      - "8178:9000"
+    environment:
+      - ASR_MODEL=base.en
+      - ASR_ENGINE=openai_whisper
     volumes:
-      - ../models/whisper:/models:ro
-    command: -m /models/ggml-base.en.bin --host 0.0.0.0 --port 8178
+      - whisper_cache:/root/.cache/whisper
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8178/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/"]
       interval: 15s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 8
     networks:
       - ironman
 
@@ -102,7 +107,7 @@ services:
       - VOICE_LIVEKIT_API_KEY=devkey
       - VOICE_LIVEKIT_API_SECRET=secret
       - VOICE_STT_PROVIDER=whisper_cpp
-      - VOICE_WHISPER_CPP_URL=http://whisper-cpp:8178
+      - VOICE_WHISPER_CPP_URL=http://whisper-cpp:9000
       - VOICE_TTS_PROVIDER=piper
       - VOICE_PIPER_URL=http://piper:5002
       - VOICE_API_BASE_URL=http://api:8000
@@ -125,3 +130,6 @@ networks:
   ironman:
     external: true
     name: ironman_ironman
+
+volumes:
+  whisper_cache:    # persists downloaded Whisper model between restarts
