@@ -65,6 +65,15 @@ export default function VoicePage() {
   const bargeInTextRef = useRef('');
   const bargeInRecognitionRef = useRef<unknown>(null);
 
+  // MediaRecorder for whisper_cpp / groq STT path
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // AudioBufferSourceNode for Piper TTS interruption
+  const piperSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  // Always-on wake word background recognizer
+  const wakeWordRecognitionRef = useRef<unknown>(null);
+  // Mirrors callState for use inside closures that can't read fresh state
+  const callActiveRef = useRef(false);
+
   const refreshHealth = useCallback(async () => {
     setHealthLoading(true);
     try {
@@ -90,8 +99,13 @@ export default function VoicePage() {
       clearTimeout(restartTimerRef.current);
       clearInterval(durationIntervalRef.current);
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      piperSourceRef.current?.stop?.();
       (recognitionRef.current as any)?.abort?.();
       (bargeInRecognitionRef.current as any)?.abort?.();
+      (wakeWordRecognitionRef.current as any)?.abort?.();
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
     };
   }, [refreshHealth]);
 
@@ -102,6 +116,70 @@ export default function VoicePage() {
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  // Keep callActiveRef in sync; kill wake word listener the moment a call starts
+  useEffect(() => {
+    callActiveRef.current = callState === 'active' || callState === 'connecting';
+    if (callActiveRef.current) {
+      (wakeWordRecognitionRef.current as any)?.abort?.();
+      wakeWordRecognitionRef.current = null;
+    }
+  }, [callState]);
+
+  // Always-on wake word listener — auto-starts a call when the phrase is spoken
+  useEffect(() => {
+    const wakeEnabled = voiceConfig?.wake_word?.enabled ?? false;
+    const wakePhrase = (voiceConfig?.wake_word?.phrase || 'hey jarvis').toLowerCase();
+
+    if (!wakeEnabled || isCallActive) {
+      (wakeWordRecognitionRef.current as any)?.abort?.();
+      wakeWordRecognitionRef.current = null;
+      return;
+    }
+
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) return; // browser doesn't support wake word via Web Speech API
+
+    let mounted = true;
+
+    const startWW = () => {
+      if (!mounted || callActiveRef.current) return;
+      const ww = new SpeechRec();
+      ww.continuous = true;
+      ww.interimResults = false;
+      ww.lang = 'en-US';
+
+      ww.onresult = (e: any) => {
+        const last = e.results[e.results.length - 1];
+        const text = (last?.[0]?.transcript ?? '').toLowerCase().trim();
+        if (text.includes(wakePhrase) && !callActiveRef.current) {
+          ww.abort();
+          wakeWordRecognitionRef.current = null;
+          // startCall is defined in the same component scope — safe to call
+          startCall();
+        }
+      };
+
+      ww.onend = () => {
+        if (mounted && !callActiveRef.current) {
+          setTimeout(() => mounted && !callActiveRef.current && startWW(), 400);
+        }
+      };
+
+      ww.onerror = () => {};
+      wakeWordRecognitionRef.current = ww;
+      try { ww.start(); } catch { /* non-fatal */ }
+    };
+
+    startWW();
+
+    return () => {
+      mounted = false;
+      (wakeWordRecognitionRef.current as any)?.abort?.();
+      wakeWordRecognitionRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceConfig?.wake_word?.enabled, voiceConfig?.wake_word?.phrase, isCallActive]);
 
   // ── Session lifecycle ──────────────────────────────────────────────────────
 
@@ -166,11 +244,33 @@ export default function VoicePage() {
     );
   };
 
-  const speak = (text: string): Promise<boolean> => new Promise((resolve) => {
-    if (!voiceReplies || !('speechSynthesis' in window) || !text.trim()) { resolve(false); return; }
-    bargeInTextRef.current = '';
-    (bargeInRecognitionRef.current as any)?.abort?.();
+  // ── Shared barge-in listener ────────────────────────────────────────────────
+  const _startBargeIn = (onInterrupt: () => void) => {
+    if (!bargeInEnabledRef.current || closingRef.current) return;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) return;
+    const bi = new SpeechRec();
+    bi.continuous = false;
+    bi.interimResults = true;
+    bi.lang = 'en-US';
+    bi.onresult = (e: any) => {
+      const t = Array.from(e.results as any[]).map((r: any) => r[0].transcript).join('').trim();
+      if (t.length > 1) {
+        bargeInTextRef.current = t;
+        bi.abort();
+        onInterrupt();
+      }
+    };
+    bi.onerror = () => {};
+    bi.onend = () => {};
+    bargeInRecognitionRef.current = bi;
+    try { bi.start(); } catch { /* non-fatal */ }
+  };
 
+  // ── Browser (speechSynthesis) TTS ───────────────────────────────────────────
+  const _speakBrowser = (text: string, resolve: (v: boolean) => void) => {
+    if (!('speechSynthesis' in window)) { resolve(false); return; }
+    (bargeInRecognitionRef.current as any)?.abort?.();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.voice = chooseVoice();
     utterance.rate = 0.98;
@@ -180,29 +280,56 @@ export default function VoicePage() {
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
     window.speechSynthesis.resume();
+    _startBargeIn(() => window.speechSynthesis.cancel());
+  };
 
-    // Phase 7: barge-in — listen in parallel while TTS plays
-    if (bargeInEnabledRef.current && !closingRef.current) {
-      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRec) {
-        const bi = new SpeechRec();
-        bi.continuous = false;
-        bi.interimResults = true;
-        bi.lang = 'en-US';
-        bi.onresult = (e: any) => {
-          const t = Array.from(e.results as any[]).map((r: any) => r[0].transcript).join('').trim();
-          if (t.length > 1) {
-            bargeInTextRef.current = t;
-            window.speechSynthesis.cancel(); // triggers utterance.onerror → resolve(false)
-            bi.abort();
-          }
-        };
-        bi.onerror = () => {};
-        bi.onend = () => {};
-        bargeInRecognitionRef.current = bi;
-        try { bi.start(); } catch { /* non-fatal if recognition already running */ }
-      }
+  // ── Main speak — tries Piper first, falls back to browser ──────────────────
+  const speak = (text: string): Promise<boolean> => new Promise((resolve) => {
+    if (!voiceReplies || !text.trim()) { resolve(false); return; }
+    bargeInTextRef.current = '';
+    (bargeInRecognitionRef.current as any)?.abort?.();
+
+    const ttsProvider = voiceConfig?.tts?.provider ?? 'browser';
+
+    if (ttsProvider === 'piper') {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      fetch(`${apiBase}/voice/synthesize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: voiceConfig?.tts?.voice ?? null }),
+      })
+        .then(r => (r.ok ? r.arrayBuffer() : Promise.reject()))
+        .then(buf => {
+          if (!buf.byteLength) { resolve(false); return; }
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          const ctx = new AudioCtx();
+          return ctx.decodeAudioData(buf).then(decoded => {
+            const src = ctx.createBufferSource();
+            src.buffer = decoded;
+            src.connect(ctx.destination);
+            piperSourceRef.current = src;
+            _startBargeIn(() => {
+              src.stop();
+              ctx.close().catch(() => {});
+              resolve(false);
+            });
+            src.onended = () => {
+              (bargeInRecognitionRef.current as any)?.abort?.();
+              piperSourceRef.current = null;
+              ctx.close().catch(() => {});
+              resolve(true);
+            };
+            src.start();
+          });
+        })
+        .catch(() => {
+          // Piper unreachable — fall back to browser TTS silently
+          _speakBrowser(text, resolve);
+        });
+      return;
     }
+
+    _speakBrowser(text, resolve);
   });
 
   const queueNextListen = (delay = 650) => {
@@ -213,6 +340,83 @@ export default function VoicePage() {
     }, delay);
   };
 
+  // ── MediaRecorder STT path (whisper_cpp / groq) ─────────────────────────────
+
+  const startListeningWhisper = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+      const mr = new MediaRecorder(stream, { mimeType });
+      const chunks: Blob[] = [];
+
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (closingRef.current) return; // call ended before we finished recording
+
+        const blob = new Blob(chunks, { type: mimeType });
+        setVoiceState('processing');
+
+        const formData = new FormData();
+        formData.append('audio', blob, `recording.${mimeType.split('/')[1]}`);
+
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        try {
+          const resp = await fetch(`${apiBase}/voice/transcribe`, { method: 'POST', body: formData });
+          if (!resp.ok) throw new Error('Transcription failed');
+          const data = await resp.json();
+          const text = (data.transcript || '').trim();
+
+          if (!text) {
+            setVoiceState('idle');
+            queueNextListen(500);
+            return;
+          }
+
+          setTranscript(text);
+          finalTranscriptRef.current = text;
+
+          if (isStopCommand(text)) {
+            await speakThenMaybeListen('Okay, stopping.', 'done');
+            stopCall();
+            return;
+          }
+
+          const pending = pendingCommandRef.current;
+          if (pending) {
+            const lower = text.toLowerCase();
+            if (CONFIRM_WORDS.some(w => lower.includes(w))) { await handleVoiceConfirm('voice'); return; }
+            if (CANCEL_WORDS.some(w => lower.includes(w))) { await handleVoiceCancel('voice'); return; }
+            try { await api.cancelCommand(pending.id); } catch { /* best-effort */ }
+            setExecution(null);
+          }
+
+          await processCommand(text);
+        } catch {
+          setErrorMsg('Transcription failed. Is the API running?');
+          setVoiceState('error');
+        }
+      };
+
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setVoiceState('listening');
+      setTranscript('Recording…');
+      setErrorMsg('');
+      finalTranscriptRef.current = '';
+      turnStartRef.current = Date.now();
+    } catch {
+      setErrorMsg('Microphone access denied or unavailable.');
+      setVoiceState('error');
+    }
+  };
+
+  const stopListeningWhisper = () => {
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state === 'recording') mr.stop(); // triggers onstop → transcribe → processCommand
+  };
+
   const isStopCommand = (text: string): boolean => {
     const n = text.trim().toLowerCase();
     return ['stop listening', 'stop jarvis', 'close voice', 'cancel voice', 'exit voice', 'goodbye jarvis'].some(
@@ -221,7 +425,7 @@ export default function VoicePage() {
   };
 
   const speakThenMaybeListen = async (message: string, nextState: VoiceState = 'done') => {
-    if (voiceReplies && 'speechSynthesis' in window) {
+    if (voiceReplies) {
       setVoiceState('speaking');
       await speak(message);
       // Phase 7: if barge-in captured text during TTS, process it immediately
@@ -323,6 +527,13 @@ export default function VoicePage() {
   // ── Mic / call controls ─────────────────────────────────────────────────────
 
   const startListening = () => {
+    // Delegate to whisper/groq MediaRecorder path when configured
+    const sttProvider = voiceConfig?.stt?.provider ?? 'browser';
+    if (sttProvider === 'whisper_cpp' || sttProvider === 'groq') {
+      startListeningWhisper();
+      return;
+    }
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -401,11 +612,21 @@ export default function VoicePage() {
     closingRef.current = true;
     clearTimeout(restartTimerRef.current);
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    piperSourceRef.current?.stop?.();
+    piperSourceRef.current = null;
     (recognitionRef.current as any)?.abort?.();
+    (bargeInRecognitionRef.current as any)?.abort?.();
+    // Stop MediaRecorder without processing the audio (call is ending)
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state === 'recording') mr.stop();
     setVoiceState('idle');
   };
 
   const startCall = async () => {
+    // Stop always-on wake word listener before taking the mic for a real call
+    (wakeWordRecognitionRef.current as any)?.abort?.();
+    wakeWordRecognitionRef.current = null;
+
     setCallState('connecting');
     setErrorMsg('');
     setExecution(null);
@@ -537,7 +758,21 @@ export default function VoicePage() {
             <div className="flex items-center gap-6">
               {/* Mic toggle */}
               <button
-                onClick={voiceState === 'listening' || voiceState === 'speaking' ? stopListening : startListening}
+                onClick={() => {
+                  if (voiceState === 'listening') {
+                    // Whisper path: stop MediaRecorder to trigger transcription
+                    const sttProvider = voiceConfig?.stt?.provider ?? 'browser';
+                    if (sttProvider === 'whisper_cpp' || sttProvider === 'groq') {
+                      stopListeningWhisper();
+                    } else {
+                      stopListening();
+                    }
+                  } else if (voiceState === 'speaking') {
+                    stopListening();
+                  } else {
+                    startListening();
+                  }
+                }}
                 disabled={voiceState === 'processing'}
                 className={clsx(
                   'w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200',
@@ -995,9 +1230,12 @@ function ProviderDot({ label, status }: { label: string; status: string }) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function executionSpeechText(result: CommandExecution): string {
+  // Prefer backend-generated spoken_response (includes agent output context)
+  if (result.spoken_response) return result.spoken_response;
   if (result.status === 'failed') return result.error_message || 'Command failed.';
   if (result.status === 'completed') {
     const r = result.execution_result;
+    if (r?.spoken_response && typeof r.spoken_response === 'string') return r.spoken_response;
     if (r?.title) return `Done. Created task: ${r.title}`;
     if (r?.status === 'completed') return 'Task marked as complete.';
     if (r?.status === 'deferred') return 'Task deferred.';

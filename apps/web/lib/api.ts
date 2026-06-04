@@ -206,6 +206,17 @@ export const api = {
   getVoiceSettings: () => apiFetch<VoiceSettingsData>('/voice/settings'),
   updateVoiceSettings: (data: Partial<VoiceSettingsData>) => apiFetch<VoiceSettingsData>('/voice/settings', { method: 'PATCH', body: JSON.stringify(data) }),
 
+  // Piper TTS synthesis — returns raw ArrayBuffer (audio/wav)
+  synthesizeSpeech: (text: string, voice?: string): Promise<ArrayBuffer> =>
+    fetch(`${API}/voice/synthesize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice: voice ?? null }),
+    }).then(r => {
+      if (!r.ok) return Promise.reject(new Error(`TTS ${r.status}`));
+      return r.arrayBuffer();
+    }),
+
   // Notes
   getNotes: (search?: string) => apiFetch<Note[]>(`/notes${search ? `?search=${encodeURIComponent(search)}` : ''}`),
   createNote: (data: { title: string; body?: string; tags?: string[]; pinned?: boolean }) => apiFetch<Note>('/notes', { method: 'POST', body: JSON.stringify(data) }),
@@ -421,12 +432,15 @@ export interface CommandExecution {
   target_agent?: string;
   task_id?: string;
   parameters?: Record<string, unknown>;
+  // backend-generated TTS text — use this for spoken replies when available
+  spoken_response?: string;
   // timing
   confirmed_at?: string;
   confirmation_method?: string;
   executed_at?: string;
   completed_at?: string;
   latency_ms?: number;
+  total_latency_ms?: number;
   voice_session_id?: string;
   created_at: string;
   // legacy alias

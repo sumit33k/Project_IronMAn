@@ -1,6 +1,7 @@
 import json
 import time
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response as FastAPIResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -324,6 +325,50 @@ async def process_voice_command(cmd: VoiceCommand, db: Session = Depends(get_db)
             "transcript": cmd.transcript,
             "spoken_response": "Sorry, I had trouble processing that.",
         }
+
+
+# ---------------------------------------------------------------------------
+# Piper TTS synthesis proxy
+# ---------------------------------------------------------------------------
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str | None = None
+
+
+@router.post("/synthesize")
+async def synthesize_speech(request: TTSRequest, db: Session = Depends(get_db)):
+    """Proxy text-to-speech synthesis to the configured Piper service.
+    Returns audio/wav binary on success.
+    Returns 503 if Piper is not configured or unreachable.
+    """
+    config = config_store.load(db)
+    if config.tts.provider != "piper":
+        raise HTTPException(
+            404,
+            "Piper TTS not active. Set tts.provider=piper in PATCH /voice/config.",
+        )
+
+    piper_url = (config.tts.base_url or "http://localhost:5002").rstrip("/")
+    voice = request.voice or config.tts.voice or "en_US-lessac-medium"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{piper_url}/api/tts",
+                data={"text": request.text, "voice": voice},
+            )
+        if resp.status_code != 200:
+            raise HTTPException(502, f"Piper returned HTTP {resp.status_code}: {resp.text[:200]}")
+        return FastAPIResponse(content=resp.content, media_type="audio/wav")
+    except httpx.ConnectError:
+        raise HTTPException(
+            503,
+            "Piper TTS service not reachable. "
+            "Start it with: docker compose -f infra/docker-compose.voice.yml up piper",
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Piper TTS service timed out.")
 
 
 # ---------------------------------------------------------------------------

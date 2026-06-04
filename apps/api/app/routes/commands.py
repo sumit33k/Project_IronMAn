@@ -66,6 +66,8 @@ def _cmd_to_dict(cmd: Command) -> dict:
         "parameters": payload.get("parameters", {}),
         "user_visible_summary": payload.get("user_visible_summary", ""),
         "confirmation_message": payload.get("confirmation_message"),
+        # spoken_response: lifted from execution_result so the frontend can drive TTS directly
+        "spoken_response": exec_result.get("spoken_response") if exec_result else None,
     }
 
 
