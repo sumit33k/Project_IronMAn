@@ -21,6 +21,7 @@ from app.services.confirmation_policy import (
     confirmation_message_for,
     requires_confirmation,
 )
+from app.services.agent_orchestrator import AgentOrchestrator, _spoken_from_direct_result
 
 
 def _infer_resource_type(intent: Optional[str]) -> Optional[str]:
@@ -166,8 +167,9 @@ class CommandExecutor:
         intent = cmd.action_type or payload.get("intent", "ask_general_question")
         params = payload.get("parameters", {})
         task_id = cmd.target_resource_id or payload.get("task_id") or params.get("task_id")
+        target_agent = payload.get("target_agent")
 
-        handlers = {
+        direct_handlers = {
             "create_task": lambda: self._create_task(params, cmd.input_mode, db),
             "complete_task": lambda: self._complete_task(task_id, db),
             "defer_task": lambda: self._defer_task(task_id, params, db),
@@ -177,32 +179,32 @@ class CommandExecutor:
             "show_briefing": lambda: self._show_briefing(db),
         }
 
-        agent_intents = {
-            "generate_daily_briefing": ("daily_briefing_agent", {"type": "morning"}),
-            "generate_end_of_day_review": ("daily_briefing_agent", {"type": "eod"}),
-            "draft_email": ("email_draft_agent", params),
-            "prepare_meeting": ("calendar_prep_agent", params),
-            "create_presentation_outline": ("presentation_agent", params),
-            "summarize_document": ("document_agent", params),
-            "delegate_task": ("orchestrator_agent", {**params, "task_id": task_id}),
-        }
-
-        if intent in handlers:
-            handler = handlers[intent]
+        if intent in direct_handlers:
+            handler = direct_handlers[intent]
             import inspect
-            if inspect.iscoroutinefunction(handler):
-                return await handler()
-            return handler()
+            result = await handler() if inspect.iscoroutinefunction(handler) else handler()
+            result.setdefault("spoken_response", _spoken_from_direct_result(intent, result))
+            return result
 
-        if intent in agent_intents:
-            agent_id, agent_params = agent_intents[intent]
-            return await self._run_agent(agent_id, agent_params, db)
+        # All other intents go through AgentOrchestrator (resolves + creates agent if needed)
+        orchestrator = AgentOrchestrator()
+        # For agent-backed intents pass explicit params overrides where needed
+        agent_params = dict(params)
+        if intent in ("generate_daily_briefing",):
+            agent_params.setdefault("type", "morning")
+        elif intent in ("generate_end_of_day_review",):
+            agent_params.setdefault("type", "eod")
+        elif intent == "delegate_task":
+            agent_params["task_id"] = task_id
 
-        return {
-            "status": "acknowledged",
-            "intent": intent,
-            "message": f"Intent '{intent}' received but has no execution handler yet.",
-        }
+        result = await orchestrator.resolve_and_run(
+            intent=intent,
+            params=agent_params,
+            agent_id=target_agent,
+            db=db,
+            task_id=task_id,
+        )
+        return result
 
     def _create_task(self, params: dict, input_mode: str, db: Session) -> dict:
         title = params.get("title") or params.get("raw", "")
@@ -314,20 +316,3 @@ class CommandExecutor:
             "focus_score": briefing.focus_score,
         }
 
-    async def _run_agent(self, agent_id: str, params: dict, db: Session) -> dict:
-        from app.agents.registry import get_registry
-
-        registry = get_registry()
-        agent = registry.get(agent_id)
-        if not agent:
-            return {"status": "error", "message": f"Agent '{agent_id}' not found in registry."}
-        try:
-            run = await agent.execute(params, db)
-            return {
-                "status": run.status,
-                "run_id": run.id,
-                "output": json.loads(run.output_data) if run.output_data else {},
-                "error": run.error_message,
-            }
-        except Exception as exc:
-            return {"status": "error", "message": str(exc)}

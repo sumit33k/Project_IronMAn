@@ -1,4 +1,5 @@
 import json
+import time
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from app.schemas.voice_config import VoiceConfig
 from app.services.voice import config_store
 from app.services.voice.health import check_providers
 from app.services.command_executor import CommandExecutor
+from app.services.voice_session_manager import VoiceSessionManager
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
@@ -205,8 +207,20 @@ async def transcribe_audio(audio: UploadFile = File(...), db: Session = Depends(
 
 @router.post("/process")
 async def process_voice_command(cmd: VoiceCommand, db: Session = Depends(get_db)):
-    """Route and optionally execute a voice transcript through CommandExecutor."""
+    """Route and optionally execute a voice transcript through CommandExecutor.
+
+    Always returns a `spoken_response` field suitable for text-to-speech playback.
+    Logs user + assistant turns to the VoiceSession when a session_id is provided.
+    """
+    session_manager = VoiceSessionManager(db)
     executor = CommandExecutor()
+    turn_start_ms = int(time.time() * 1000)
+
+    # Ensure session exists if a session_id was provided
+    if cmd.voice_session_id:
+        session_manager.get_or_create(cmd.voice_session_id)
+        session_manager.set_status(cmd.voice_session_id, "transcribing")
+
     try:
         if cmd.auto_execute:
             command = await executor.preview(
@@ -216,7 +230,11 @@ async def process_voice_command(cmd: VoiceCommand, db: Session = Depends(get_db)
                 db=db,
                 voice_session_id=cmd.voice_session_id,
             )
+            if cmd.voice_session_id:
+                session_manager.set_status(cmd.voice_session_id, "routing")
             if not command.requires_confirmation:
+                if cmd.voice_session_id:
+                    session_manager.set_status(cmd.voice_session_id, "executing")
                 command = await executor.execute(command.id, db, confirmation_method="auto")
         else:
             command = await executor.preview(
@@ -233,12 +251,55 @@ async def process_voice_command(cmd: VoiceCommand, db: Session = Depends(get_db)
         except Exception:
             pass
 
-        exec_result = None
+        exec_result: dict | None = None
         try:
             if command.execution_result:
                 exec_result = json.loads(command.execution_result)
         except Exception:
             pass
+
+        # Derive spoken_response: prefer what the executor returned, else build one
+        spoken_response: str = ""
+        if exec_result and isinstance(exec_result, dict):
+            spoken_response = exec_result.get("spoken_response", "")
+        if not spoken_response:
+            if command.requires_confirmation:
+                spoken_response = (
+                    payload.get("confirmation_message")
+                    or f"Please confirm: {payload.get('user_visible_summary', 'your request')}."
+                )
+            elif command.status == "completed":
+                spoken_response = exec_result.get("spoken_response", "Done.") if exec_result else "Done."
+            elif command.status == "failed":
+                err = command.error_message or "Unknown error."
+                spoken_response = f"Something went wrong. {err}"
+            else:
+                spoken_response = payload.get("user_visible_summary", "Request received.")
+
+        total_latency = int(time.time() * 1000) - turn_start_ms
+
+        # Log turns into the voice session
+        if cmd.voice_session_id:
+            try:
+                session_manager.record_user_turn(
+                    cmd.voice_session_id,
+                    transcript=cmd.transcript,
+                    command_id=command.id,
+                    stt_latency_ms=None,
+                )
+                if command.status in ("completed", "failed", "awaiting_confirmation"):
+                    session_manager.record_assistant_turn(
+                        cmd.voice_session_id,
+                        spoken_response=spoken_response,
+                        command_id=command.id,
+                        total_latency_ms=total_latency,
+                    )
+                    session_manager.set_status(
+                        cmd.voice_session_id,
+                        "speaking" if command.status == "completed" else "listening",
+                    )
+            except Exception:
+                pass  # Turn logging must never break the main response
 
         return {
             "command_id": command.id,
@@ -254,9 +315,15 @@ async def process_voice_command(cmd: VoiceCommand, db: Session = Depends(get_db)
             "target_agent": payload.get("target_agent"),
             "task_id": payload.get("task_id") or command.target_resource_id,
             "parameters": payload.get("parameters", {}),
+            "spoken_response": spoken_response,
+            "total_latency_ms": total_latency,
         }
     except Exception as exc:
-        return {"error": str(exc), "transcript": cmd.transcript}
+        return {
+            "error": str(exc),
+            "transcript": cmd.transcript,
+            "spoken_response": "Sorry, I had trouble processing that.",
+        }
 
 
 # ---------------------------------------------------------------------------
